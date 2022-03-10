@@ -11,6 +11,7 @@ my %defs =
    => {protos => ['populate_joinrel_with_paths'],
 	   funcs => ['set_plain_rel_pathlist',
 				 'set_append_rel_pathlist',
+				 'bring_to_outer_query',
 				 'standard_join_search',
 				 'create_plain_partial_paths',
 				 'join_search_one_level',
@@ -27,7 +28,7 @@ my %defs =
 	   funcs => ['make_join_rel',
 				 'populate_joinrel_with_paths'],
 	   head => make_join_rel_head()});
-	
+
 open (my $in, '-|', "objdump -W `which postgres`") || die "failed to objdump";
 while (<$in>)
 {
@@ -40,7 +41,7 @@ while (<$in>)
 close($in);
 
 die "source path not found" if (! defined $srcpath);
-#printf("Source path = %s\n", $srcpath);
+printf("Source path = %s\n", $srcpath);
 
 my %protos;
 my %funcs;
@@ -124,7 +125,7 @@ sub core_c_head()
 /*-------------------------------------------------------------------------
  *
  * core.c
- *	  Routines copied from PostgreSQL core distribution.
+ *    Routines copied from PostgreSQL core distribution.
  *
  * The main purpose of this files is having access to static functions in core.
  * Another purpose is tweaking functions behavior by replacing part of them by
@@ -142,18 +143,19 @@ sub core_c_head()
  *        change the behavior of make_join_rel, which is called under this
  *        function.
  *
- *	static functions:
- *	   set_plain_rel_pathlist()
- *	   set_append_rel_pathlist()
- *	   create_plain_partial_paths()
+ *  static functions:
+ *     set_plain_rel_pathlist()
+ *     set_append_rel_pathlist()
+ *     bring_to_outer_query()
+ *     create_plain_partial_paths()
  *
  * src/backend/optimizer/path/joinrels.c
  *
- *	public functions:
+ *  public functions:
  *     join_search_one_level(): We have to modify this to call my definition of
- * 		    make_rels_by_clause_joins.
+ *       make_rels_by_clause_joins.
  *
- *	static functions:
+ *  static functions:
  *     make_rels_by_clause_joins()
  *     make_rels_by_clauseless_joins()
  *     join_is_legal()
@@ -176,14 +178,14 @@ sub make_join_rel_head
 /*-------------------------------------------------------------------------
  *
  * make_join_rel.c
- *	  Routines copied from PostgreSQL core distribution with some
- *	  modifications.
+ *    Routines copied from PostgreSQL core distribution with some
+ *    modifications.
  *
  * src/backend/optimizer/path/joinrels.c
  *
  * This file contains the following functions from corresponding files.
  *
- *	static functions:
+ *  static functions:
  *     make_join_rel()
  *     populate_joinrel_with_paths()
  *
@@ -225,7 +227,6 @@ adjust_rows(double rows, RowsHint *hint)
 }
 EOS
 }
-   
 
 sub patch_make_join_rel
 {
@@ -237,9 +238,9 @@ index 0e7b99f..287e7f1 100644
 --- b/make_join_rel.c
 +++ a/make_join_rel.c
 @@ -126,6 +126,84 @@ make_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2)
- 	joinrel = build_join_rel(root, joinrelids, rel1, rel2, sjinfo,
- 							 &restrictlist);
- 
+	joinrel = build_join_rel(root, joinrelids, rel1, rel2, sjinfo,
+							 &restrictlist);
+
 +	/* !!! START: HERE IS THE PART WHICH ADDED FOR PG_HINT_PLAN !!! */
 +	{
 +		RowsHint   *rows_hint = NULL;
@@ -310,16 +311,16 @@ index 0e7b99f..287e7f1 100644
 +				 */
 +				set_joinrel_size_estimates(root, joinrel, rel1, rel2, sjinfo,
 +										   restrictlist);
-+				
++
 +				joinrel->rows = adjust_rows(joinrel->rows, domultiply);
 +			}
-+			
++
 +		}
 +	}
 +	/* !!! END: HERE IS THE PART WHICH ADDED FOR PG_HINT_PLAN !!! */
 +
- 	/*
- 	 * If we've already proven this join is empty, we needn't consider any
- 	 * more paths for it.
+	/*
+	 * If we've already proven this join is empty, we needn't consider any
+	 * more paths for it.
 EOS
 }

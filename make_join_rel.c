@@ -1,14 +1,14 @@
 /*-------------------------------------------------------------------------
  *
  * make_join_rel.c
- *	  Routines copied from PostgreSQL core distribution with some
- *	  modifications.
+ *    Routines copied from PostgreSQL core distribution with some
+ *    modifications.
  *
  * src/backend/optimizer/path/joinrels.c
  *
  * This file contains the following functions from corresponding files.
  *
- *	static functions:
+ *  static functions:
  *     make_join_rel()
  *     populate_joinrel_with_paths()
  *
@@ -71,6 +71,13 @@ make_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2)
 	SpecialJoinInfo sjinfo_data;
 	RelOptInfo *joinrel;
 	List	   *restrictlist;
+
+	/* This is a convenient place to check for query cancel. */
+	CHECK_FOR_INTERRUPTS();
+
+	Assert(rel1 && rel2 &&
+		rel1->cheapest_total_path &&
+		rel2->cheapest_total_path);
 
 	/* We should never try to join two overlapping sets of rels. */
 	Assert(!bms_overlap(rel1->relids, rel2->relids));
@@ -162,7 +169,7 @@ make_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2)
 				/*
 				 * If the rows_hint's target relids is not a subset of both of
 				 * component rels and is a subset of this joinrel, ths hint's
-				 * targets spread over both component rels. This means that
+				 * targets spread over both component rels. This menas that
 				 * this hint has been never applied so far and this joinrel is
 				 * the first (and only) chance to fire in current join tree.
 				 * Only the multiplication hint has the cumulative nature so we
@@ -176,7 +183,7 @@ make_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2)
 		{
 			/*
 			 * If a hint just for me is found, no other adjust method is
-			 * useless, but this cannot be more than twice becuase this joinrel
+			 * useles, but this cannot be more than twice becuase this joinrel
 			 * is already adjusted by this hint.
 			 */
 			if (justforme->base.state == HINT_STATE_NOTUSED)
@@ -196,10 +203,10 @@ make_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2)
 				 */
 				set_joinrel_size_estimates(root, joinrel, rel1, rel2, sjinfo,
 										   restrictlist);
-				
+
 				joinrel->rows = adjust_rows(joinrel->rows, domultiply);
 			}
-			
+
 		}
 	}
 	/* !!! END: HERE IS THE PART WHICH ADDED FOR PG_HINT_PLAN !!! */
@@ -260,7 +267,7 @@ populate_joinrel_with_paths(PlannerInfo *root, RelOptInfo *rel1,
 			if (is_dummy_rel(rel1) || is_dummy_rel(rel2) ||
 				restriction_is_constant_false(restrictlist, joinrel, false))
 			{
-				mark_dummy_rel(joinrel);
+				mark_dummy_rel(root, joinrel);
 				break;
 			}
 			add_paths_to_joinrel(root, joinrel, rel1, rel2,
@@ -274,12 +281,12 @@ populate_joinrel_with_paths(PlannerInfo *root, RelOptInfo *rel1,
 			if (is_dummy_rel(rel1) ||
 				restriction_is_constant_false(restrictlist, joinrel, true))
 			{
-				mark_dummy_rel(joinrel);
+				mark_dummy_rel(root, joinrel);
 				break;
 			}
 			if (restriction_is_constant_false(restrictlist, joinrel, false) &&
 				bms_is_subset(rel2->relids, sjinfo->syn_righthand))
-				mark_dummy_rel(rel2);
+				mark_dummy_rel(root, rel2);
 			add_paths_to_joinrel(root, joinrel, rel1, rel2,
 								 JOIN_LEFT, sjinfo,
 								 restrictlist);
@@ -291,7 +298,7 @@ populate_joinrel_with_paths(PlannerInfo *root, RelOptInfo *rel1,
 			if ((is_dummy_rel(rel1) && is_dummy_rel(rel2)) ||
 				restriction_is_constant_false(restrictlist, joinrel, true))
 			{
-				mark_dummy_rel(joinrel);
+				mark_dummy_rel(root, joinrel);
 				break;
 			}
 			add_paths_to_joinrel(root, joinrel, rel1, rel2,
@@ -327,11 +334,22 @@ populate_joinrel_with_paths(PlannerInfo *root, RelOptInfo *rel1,
 				if (is_dummy_rel(rel1) || is_dummy_rel(rel2) ||
 					restriction_is_constant_false(restrictlist, joinrel, false))
 				{
-					mark_dummy_rel(joinrel);
+					mark_dummy_rel(root, joinrel);
 					break;
 				}
 				add_paths_to_joinrel(root, joinrel, rel1, rel2,
 									 JOIN_SEMI, sjinfo,
+									 restrictlist);
+
+				/*
+				 * In GPDB, also try a path, where we perform a normal inner
+				 * join, and eliminate duplicates afterwards.
+				 */
+				add_paths_to_joinrel(root, joinrel, rel1, rel2,
+									 JOIN_DEDUP_SEMI, sjinfo,
+									 restrictlist);
+				add_paths_to_joinrel(root, joinrel, rel2, rel1,
+									 JOIN_DEDUP_SEMI_REVERSE, sjinfo,
 									 restrictlist);
 			}
 
@@ -350,7 +368,7 @@ populate_joinrel_with_paths(PlannerInfo *root, RelOptInfo *rel1,
 				if (is_dummy_rel(rel1) || is_dummy_rel(rel2) ||
 					restriction_is_constant_false(restrictlist, joinrel, false))
 				{
-					mark_dummy_rel(joinrel);
+					mark_dummy_rel(root, joinrel);
 					break;
 				}
 				add_paths_to_joinrel(root, joinrel, rel1, rel2,
@@ -362,17 +380,18 @@ populate_joinrel_with_paths(PlannerInfo *root, RelOptInfo *rel1,
 			}
 			break;
 		case JOIN_ANTI:
+		case JOIN_LASJ_NOTIN:
 			if (is_dummy_rel(rel1) ||
 				restriction_is_constant_false(restrictlist, joinrel, true))
 			{
-				mark_dummy_rel(joinrel);
+				mark_dummy_rel(root, joinrel);
 				break;
 			}
 			if (restriction_is_constant_false(restrictlist, joinrel, false) &&
 				bms_is_subset(rel2->relids, sjinfo->syn_righthand))
-				mark_dummy_rel(rel2);
+				mark_dummy_rel(root, rel2);
 			add_paths_to_joinrel(root, joinrel, rel1, rel2,
-								 JOIN_ANTI, sjinfo,
+								 sjinfo->jointype, sjinfo,
 								 restrictlist);
 			break;
 		default:

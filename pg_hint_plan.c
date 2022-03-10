@@ -15,6 +15,8 @@
 #include "access/relation.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_index.h"
+#include "cdb/cdbmutate.h"
+#include "cdb/cdbpath.h"
 #include "commands/prepare.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
@@ -23,7 +25,6 @@
 #include "optimizer/appendinfo.h"
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
-#include "optimizer/geqo.h"
 #include "optimizer/joininfo.h"
 #include "optimizer/optimizer.h"
 #include "optimizer/pathnode.h"
@@ -33,6 +34,7 @@
 #include "optimizer/prep.h"
 #include "optimizer/restrictinfo.h"
 #include "parser/analyze.h"
+#include "parser/parser.h"
 #include "parser/parsetree.h"
 #include "parser/scansup.h"
 #include "partitioning/partbounds.h"
@@ -84,6 +86,7 @@ PG_MODULE_MAGIC;
 #define HINT_INDEXONLYSCANREGEXP	"IndexOnlyScanRegexp"
 #define HINT_NOINDEXONLYSCAN	"NoIndexOnlyScan"
 #define HINT_PARALLEL			"Parallel"
+#define HINT_DISPATCH			"DirectDispatch"
 
 #define HINT_NESTLOOP			"NestLoop"
 #define HINT_MERGEJOIN			"MergeJoin"
@@ -160,6 +163,8 @@ typedef enum HintKeyword
 	HINT_KEYWORD_SET,
 	HINT_KEYWORD_ROWS,
 	HINT_KEYWORD_PARALLEL,
+
+	HINT_KEYWORD_DISPATCH,
 
 	HINT_KEYWORD_UNRECOGNIZED
 } HintKeyword;
@@ -339,6 +344,11 @@ typedef struct ParallelHint
 	bool			force_parallel;	/* force parallel scan */
 } ParallelHint;
 
+typedef struct DispatchHint
+{
+	Hint			base;
+} DispatchHint;
+
 /*
  * Describes a context of hint processing.
  */
@@ -400,6 +410,7 @@ void		_PG_fini(void);
 static void push_hint(HintState *hstate);
 static void pop_hint(void);
 
+static void pg_hint_plan_post_parse(List *parsetrees, const char *str);
 static void pg_hint_plan_post_parse_analyze(ParseState *pstate, Query *query);
 static void pg_hint_plan_ProcessUtility(PlannedStmt *pstmt,
 					const char *queryString,
@@ -465,6 +476,13 @@ static void ParallelHintDesc(ParallelHint *hint, StringInfo buf, bool nolf);
 static int ParallelHintCmp(const ParallelHint *a, const ParallelHint *b);
 static const char *ParallelHintParse(ParallelHint *hint, HintState *hstate,
 									 Query *parse, const char *str);
+
+/* Dispatch hint callbacks */
+static Hint *DispatchHintCreate(const char *hint_str, const char *keyword,
+								  HintKeyword hint_keyword);
+static void DispatchHintDelete(DispatchHint *hint);
+static const char *DispatchHintParse(DispatchHint *hint, HintState *hstate,
+									   Query *parse, const char *str);
 
 static void quote_value(StringInfo buf, const char *value);
 
@@ -560,6 +578,7 @@ static const struct config_enum_entry parse_debug_level_options[] = {
 };
 
 /* Saved hook values in case of unload */
+static post_parse_hook_type prev_post_parse_hook = NULL;
 static post_parse_analyze_hook_type prev_post_parse_analyze_hook = NULL;
 static planner_hook_type prev_planner = NULL;
 static join_search_hook_type prev_join_search = NULL;
@@ -605,6 +624,8 @@ static const HintParser parsers[] = {
 	{HINT_ROWS, RowsHintCreate, HINT_KEYWORD_ROWS},
 	{HINT_PARALLEL, ParallelHintCreate, HINT_KEYWORD_PARALLEL},
 
+	{HINT_DISPATCH, DispatchHintCreate, HINT_KEYWORD_DISPATCH},
+
 	{NULL, NULL, HINT_KEYWORD_UNRECOGNIZED}
 };
 
@@ -632,7 +653,7 @@ _PG_init(void)
 							 NULL,
 							 &pg_hint_plan_enable_hint,
 							 true,
-						     PGC_USERSET,
+							 PGC_USERSET,
 							 0,
 							 NULL,
 							 NULL,
@@ -686,6 +707,8 @@ _PG_init(void)
 							 NULL);
 
 	/* Install hooks. */
+	prev_post_parse_hook = post_parse_hook;
+	post_parse_hook = pg_hint_plan_post_parse;
 	prev_post_parse_analyze_hook = post_parse_analyze_hook;
 	post_parse_analyze_hook = pg_hint_plan_post_parse_analyze;
 	prev_planner = planner_hook;
@@ -714,6 +737,7 @@ _PG_fini(void)
 	PLpgSQL_plugin	**var_ptr;
 
 	/* Uninstall hooks. */
+	post_parse_hook = prev_post_parse_hook;
 	post_parse_analyze_hook = prev_post_parse_analyze_hook;
 	planner_hook = prev_planner;
 	join_search_hook = prev_join_search;
@@ -965,6 +989,30 @@ ParallelHintDelete(ParallelHint *hint)
 	pfree(hint);
 }
 
+static Hint *
+DispatchHintCreate(const char *hint_str, const char *keyword,
+					 HintKeyword hint_keyword)
+{
+	DispatchHint *hint;
+
+	hint = palloc(sizeof(DispatchHint));
+	hint->base.hint_str = hint_str;
+	hint->base.keyword = keyword;
+	hint->base.hint_keyword = hint_keyword;
+	hint->base.delete_func = (HintDeleteFunction) DispatchHintDelete;
+	hint->base.parse_func = (HintParseFunction) DispatchHintParse;
+
+	return (Hint *) hint;
+}
+
+static void
+DispatchHintDelete(DispatchHint *hint)
+{
+	if (!hint)
+		return;
+
+	pfree(hint);
+}
 
 static HintState *
 HintStateCreate(void)
@@ -1648,6 +1696,48 @@ parse_parentheses(const char *str, List **name_list, HintKeyword keyword)
 }
 
 static void
+parse_dispatch_hint(const char *str)
+{
+	StringInfoData buf;
+	const char *head = NULL;
+	const HintParser *parser;
+	Hint *hint = NULL;
+
+	head = (const char *) strcasestr(str, HINT_DISPATCH);
+	if (head == NULL)
+		return;
+
+	initStringInfo(&buf);
+	head = parse_keyword(head, &buf);
+
+	for (parser = parsers; parser->keyword != NULL; parser++)
+	{
+		char *keyword = parser->keyword;
+
+		if (pg_strcasecmp(buf.data, keyword) != 0)
+			continue;
+
+		Assert(pg_strcasecmp(keyword, HINT_DISPATCH) == 0);
+		hint = parser->create_func(head, keyword, parser->hint_keyword);
+		hint->parse_func(hint, NULL, NULL, head);
+		/* only handle DirectDispatch hint here */
+		break;
+	}
+
+	if (parser->keyword == NULL)
+	{
+		hint_ereport(head,
+					 ("Unrecognized hint keyword \"%s\".", buf.data));
+		pfree(buf.data);
+		return;
+	}
+
+	if (hint != NULL)
+		hint->delete_func(hint);
+	pfree(buf.data);
+}
+
+static void
 parse_hints(HintState *hstate, Query *parse, const char *str)
 {
 	StringInfoData	buf;
@@ -1681,6 +1771,15 @@ parse_hints(HintState *hstate, Query *parse, const char *str)
 				hint->delete_func(hint);
 				pfree(buf.data);
 				return;
+			}
+
+			/* Dispatch hint has been processed by parse_dispatch_hint, do not
+			 * add it into HintState */
+			if (pg_strcasecmp(keyword, HINT_DISPATCH) == 0)
+			{
+				hint->delete_func(hint);
+				skip_space(str);
+				break;
 			}
 
 			/*
@@ -1722,7 +1821,7 @@ parse_hints(HintState *hstate, Query *parse, const char *str)
 }
 
 
-/* 
+/*
  * Get hints from table by client-supplied query string and application name.
  */
 static const char *
@@ -1754,9 +1853,9 @@ get_hints_from_table(const char *client_query, const char *client_application)
 			PushActiveSnapshot(GetTransactionSnapshot());
 			snapshot_set = true;
 		}
-	
+
 		SPI_connect();
-	
+
 		if (plan == NULL)
 		{
 			SPIPlanPtr	p;
@@ -1764,18 +1863,18 @@ get_hints_from_table(const char *client_query, const char *client_application)
 			plan = SPI_saveplan(p);
 			SPI_freeplan(p);
 		}
-	
+
 		qry = cstring_to_text(client_query);
 		app = cstring_to_text(client_application);
 		values[0] = PointerGetDatum(qry);
 		values[1] = PointerGetDatum(app);
-	
+
 		SPI_execute_plan(plan, values, nulls, true, 1);
-	
+
 		if (SPI_processed > 0)
 		{
 			char	*buf;
-	
+
 			hints = SPI_getvalue(SPI_tuptable->vals[0],
 								 SPI_tuptable->tupdesc, 1);
 			/*
@@ -1788,7 +1887,7 @@ get_hints_from_table(const char *client_query, const char *client_application)
 			strcpy(buf, hints);
 			hints = buf;
 		}
-	
+
 		SPI_finish();
 
 		if (snapshot_set)
@@ -1848,7 +1947,7 @@ get_query_string(ParseState *pstate, Query *query, Query **jumblequery)
 		if (IsA(target_query, ExplainStmt))
 		{
 			ExplainStmt *stmt = (ExplainStmt *)target_query;
-			
+
 			Assert(IsA(stmt->query, Query));
 			target_query = (Query *)stmt->query;
 
@@ -1909,7 +2008,7 @@ get_query_string(ParseState *pstate, Query *query, Query **jumblequery)
 				target_query = NULL;
 			}
 		}
-			
+
 		/* JumbleQuery accespts only a non-utility Query */
 		if (target_query &&
 			(!IsA(target_query, Query) ||
@@ -2396,7 +2495,6 @@ RowsHintParse(RowsHint *hint, HintState *hstate, Query *parse,
 
 		return str;
 	}
-	
 
 	/*
 	 * Transform relation names from list to array to sort them with qsort
@@ -2495,7 +2593,7 @@ ParallelHintParse(ParallelHint *hint, HintState *hstate, Query *parse,
 	}
 
 	hint->relname = linitial(name_list);
-		
+
 	/* The second parameter is number of workers */
 	hint->nworkers_str = list_nth(name_list, 1);
 	nworkers = strtod(hint->nworkers_str, &end_ptr);
@@ -2540,6 +2638,25 @@ ParallelHintParse(ParallelHint *hint, HintState *hstate, Query *parse,
 		nworkers > max_hint_nworkers)
 		max_hint_nworkers = nworkers;
 
+	return str;
+}
+
+static const char *
+DispatchHintParse(DispatchHint *hint, HintState *hstate, Query *parse,
+					const char *str)
+{
+	List *words = NIL;
+
+	if ((str = parse_parentheses(str, &words, hint->base.hint_keyword)) == NULL)
+		return NULL;
+
+	if (list_length(words) <= 1)
+	{
+		list_free(words);
+		return NULL;
+	}
+
+	direct_dispatch_hint = words;
 	return str;
 }
 
@@ -2794,9 +2911,11 @@ set_join_config_options(unsigned char enforce_mask, GucContext context)
 		if (work_mem < MAX_KILOBYTES)
 		{
 			snprintf(buf, sizeof(buf), UINT64_FORMAT, (uint64)MAX_KILOBYTES);
+			ignore_deprecated_guc_warning = true;
 			set_config_option_noerror("work_mem", buf,
 									  context, PGC_S_SESSION, GUC_ACTION_SAVE,
 									  true, ERROR);
+			ignore_deprecated_guc_warning = false;
 		}
 	}
 }
@@ -2891,7 +3010,7 @@ get_current_hint_string(ParseState *pstate, Query *query)
 			pfree((void *)current_hint_str);
 			current_hint_str = NULL;
 		}
-		
+
 		if (jumblequery)
 		{
 			/*
@@ -3011,6 +3130,31 @@ get_current_hint_string(ParseState *pstate, Query *query)
 	}
 }
 
+static void
+pg_hint_plan_post_parse(List *parsetrees, const char *str)
+{
+	const char *hint_str = NULL;
+
+	if (prev_post_parse_hook)
+		prev_post_parse_hook(parsetrees, str);
+
+	if (!pg_hint_plan_enable_hint)
+		return;
+
+	if (list_length(parsetrees) != 1)
+		return;
+
+	if (direct_dispatch_hint != NIL)
+		return;
+
+	/* get hints from the comment */
+	hint_str = get_hints_from_comment(str);
+	if (hint_str == NULL)
+		return;
+
+	parse_dispatch_hint(hint_str);
+}
+
 /*
  * Retrieve hint string from the current query.
  */
@@ -3061,7 +3205,7 @@ pg_hint_plan_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	const char 	   *prev_hint_str = NULL;
 
 	/*
-	 * Use standard planner if pg_hint_plan is disabled or current nesting 
+	 * Use standard planner if pg_hint_plan is disabled or current nesting
 	 * depth is nesting depth of SPI calls. Other hook functions try to change
 	 * plan with current_hint_state if any, so set it to NULL.
 	 */
@@ -3111,7 +3255,7 @@ pg_hint_plan_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	/* run standard planner if the statement has not valid hint */
 	if (!hstate)
 		goto standard_planner_proc;
-	
+
 	/*
 	 * Push new hint struct to the hint stack to disable previous hint context.
 	 */
@@ -3124,7 +3268,7 @@ pg_hint_plan_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	setup_guc_enforcement(current_hint_state->set_hints,
 						   current_hint_state->num_hints[HINT_TYPE_SET],
 						   current_hint_state->context);
-	
+
 	current_hint_state->init_scan_mask = get_current_scan_mask();
 	current_hint_state->init_join_mask = get_current_join_mask();
 	current_hint_state->init_min_para_tablescan_size =
@@ -3147,7 +3291,7 @@ pg_hint_plan_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	{
 		ereport(pg_hint_plan_debug_message_level,
 				(errhidestmt(msgqno != qno),
-				 errmsg("pg_hint_plan%s: planner", qnostr))); 
+				 errmsg("pg_hint_plan%s: planner", qnostr)));
 		msgqno = qno;
 	}
 
@@ -3159,7 +3303,7 @@ pg_hint_plan_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	recurse_level++;
 	prev_hint_str = current_hint_str;
 	current_hint_str = NULL;
-	
+
 	/*
 	 * Use PG_TRY mechanism to recover GUC parameters and current_hint_state to
 	 * the state when this planner started when error occurred in planner.
@@ -3327,7 +3471,7 @@ find_parallel_hint(PlannerInfo *root, Index relid)
 
 	/*
 	 * Parallel planning is appliable only on base relation, which has
-	 * RelOptInfo. 
+	 * RelOptInfo.
 	 */
 	if (!rel)
 		return NULL;
@@ -3646,7 +3790,6 @@ restrict_indexes(PlannerInfo *root, ScanMethodHint *hint, RelOptInfo *rel,
 			disprelname = get_rel_name(rte->relid);
 		else
 			disprelname = hint->relname;
-			
 
 		initStringInfo(&rel_buf);
 		quote_value(&rel_buf, disprelname);
@@ -3661,7 +3804,7 @@ restrict_indexes(PlannerInfo *root, ScanMethodHint *hint, RelOptInfo *rel,
 	}
 }
 
-/* 
+/*
  * Return information of index definition.
  */
 static ParentIndexInfo *
@@ -3702,7 +3845,7 @@ get_parent_index_info(Oid indexoid, Oid relid)
 
 	/*
 	 * to check to match the expression's parameter of index with child indexes
- 	 */
+	 */
 	p_info->expression_str = NULL;
 	if(!heap_attisnull(indexRelation->rd_indextuple, Anum_pg_index_indexprs,
 					   NULL))
@@ -3723,7 +3866,7 @@ get_parent_index_info(Oid indexoid, Oid relid)
 
 	/*
 	 * to check to match the predicate's parameter of index with child indexes
- 	 */
+	 */
 	p_info->indpred_str = NULL;
 	if(!heap_attisnull(indexRelation->rd_indextuple, Anum_pg_index_indpred,
 					   NULL))
@@ -3863,7 +4006,7 @@ setup_hint_enforcement(PlannerInfo *root, RelOptInfo *rel,
 		 * redundant setup cost.
 		 */
 		current_hint_state->parent_relid = new_parent_relid;
-				
+
 		/* Find hints for the parent */
 		current_hint_state->parent_scan_hint =
 			find_scan_hint(root, current_hint_state->parent_relid);
@@ -4250,7 +4393,7 @@ transform_join_hints(HintState *hstate, PlannerInfo *root, int nbaserel,
 
 	/*
 	 * Decide whether to use Leading hint
- 	 */
+	 */
 	for (i = 0; i < hstate->num_hints[HINT_TYPE_LEADING]; i++)
 	{
 		LeadingHint	   *leading_hint = (LeadingHint *)hstate->leading_hint[i];
@@ -4385,8 +4528,8 @@ transform_join_hints(HintState *hstate, PlannerInfo *root, int nbaserel,
 	{
 		joinrelids = OuterInnerJoinCreate(lhint->outer_inner,
 										  lhint,
-                                          root,
-                                          initial_rels,
+										  root,
+										  initial_rels,
 										  hstate,
 										  nbaserel);
 
@@ -4565,7 +4708,7 @@ pg_hint_plan_join_search(PlannerInfo *root, int levels_needed,
 	bool				leading_hint_enable;
 
 	/*
-	 * Use standard planner (or geqo planner) if pg_hint_plan is disabled or no
+	 * Use standard planner if pg_hint_plan is disabled or no
 	 * valid hint is supplied or current nesting depth is nesting depth of SPI
 	 * calls.
 	 */
@@ -4573,18 +4716,9 @@ pg_hint_plan_join_search(PlannerInfo *root, int levels_needed,
 	{
 		if (prev_join_search)
 			return (*prev_join_search) (root, levels_needed, initial_rels);
-		else if (enable_geqo && levels_needed >= geqo_threshold)
-			return geqo(root, levels_needed, initial_rels);
 		else
 			return standard_join_search(root, levels_needed, initial_rels);
 	}
-
-	/*
-	 * In the case using GEQO, only scan method hints and Set hints have
-	 * effect.  Join method and join order is not controllable by hints.
-	 */
-	if (enable_geqo && levels_needed >= geqo_threshold)
-		return geqo(root, levels_needed, initial_rels);
 
 	nbaserel = get_num_baserels(initial_rels);
 	current_hint_state->join_hint_level =
@@ -4605,7 +4739,7 @@ pg_hint_plan_join_search(PlannerInfo *root, int levels_needed,
 	{
 		ListCell   *lc;
 		int 		nworkers = 0;
-	
+
 		foreach (lc, initial_rels)
 		{
 			ListCell *lcp;

@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * core.c
- *	  Routines copied from PostgreSQL core distribution.
+ *    Routines copied from PostgreSQL core distribution.
  *
  * The main purpose of this files is having access to static functions in core.
  * Another purpose is tweaking functions behavior by replacing part of them by
@@ -19,18 +19,19 @@
  *        change the behavior of make_join_rel, which is called under this
  *        function.
  *
- *	static functions:
- *	   set_plain_rel_pathlist()
- *	   set_append_rel_pathlist()
- *	   create_plain_partial_paths()
+ *  static functions:
+ *     set_plain_rel_pathlist()
+ *     set_append_rel_pathlist()
+ *     bring_to_outer_query()
+ *     create_plain_partial_paths()
  *
  * src/backend/optimizer/path/joinrels.c
  *
- *	public functions:
+ *  public functions:
  *     join_search_one_level(): We have to modify this to call my definition of
- * 		    make_rels_by_clause_joins.
+ *       make_rels_by_clause_joins.
  *
- *	static functions:
+ *  static functions:
  *     make_rels_by_clause_joins()
  *     make_rels_by_clauseless_joins()
  *     join_is_legal()
@@ -72,10 +73,9 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 	if (rel->consider_parallel && required_outer == NULL)
 		create_plain_partial_paths(root, rel);
 
-	/* Consider index scans */
+	/* Consider index and bitmap scans */
 	create_index_paths(root, rel);
 
-	/* Consider TID scans */
 	create_tidscan_paths(root, rel);
 }
 
@@ -146,6 +146,84 @@ set_append_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
 
 	/* Add paths to the append relation. */
 	add_paths_to_append_rel(root, rel, live_childrels);
+}
+
+
+/*
+ * Decorate the Paths of 'rel' with Motions to bring the relation's
+ * result to OuterQuery locus. The final plan will look something like
+ * this:
+ *
+ *   Result (with quals from 'outer_quals')
+ *           \
+ *            \_Material
+ *                   \
+ *                    \_Broadcast (or Gather)
+ *                           \
+ *                            \_SeqScan (with quals from 'baserestrictinfo')
+ */
+static void
+bring_to_outer_query(PlannerInfo *root, RelOptInfo *rel, List *outer_quals)
+{
+	List	   *origpathlist;
+	ListCell   *lc;
+
+	origpathlist = rel->pathlist;
+	rel->cheapest_startup_path = NULL;
+	rel->cheapest_total_path = NULL;
+	rel->cheapest_unique_path = NULL;
+	rel->cheapest_parameterized_paths = NIL;
+	rel->pathlist = NIL;
+
+	foreach(lc, origpathlist)
+	{
+		Path	   *origpath = (Path *) lfirst(lc);
+		Path	   *path;
+		CdbPathLocus outerquery_locus;
+
+		if (CdbPathLocus_IsGeneral(origpath->locus) ||
+			CdbPathLocus_IsOuterQuery(origpath->locus))
+			path = origpath;
+		else
+		{
+			/*
+			 * Cannot pass a param through motion, so if this is a parameterized
+			 * path, we can't use it.
+			 */
+			if (origpath->param_info)
+				continue;
+
+			/*
+			 * param_info cannot cover the case that an index path's orderbyclauses
+			 * See github issue: https://github.com/greenplum-db/gpdb/issues/9733
+			 */
+			if (IsA(origpath, IndexPath))
+			{
+				IndexPath *ipath = (IndexPath *) origpath;
+				if (contains_outer_params((Node *) ipath->indexorderbys,
+										  (void *) root))
+					continue;
+			}
+
+			CdbPathLocus_MakeOuterQuery(&outerquery_locus);
+
+			path = cdbpath_create_motion_path(root,
+											  origpath,
+											  NIL, // DESTROY pathkeys
+											  false,
+											  outerquery_locus);
+		}
+
+		if (outer_quals)
+			path = (Path *) create_projection_path_with_quals(root,
+															  rel,
+															  path,
+															  path->parent->reltarget,
+															  outer_quals,
+															  false);
+		add_path(rel, path);
+	}
+	set_cheapest(rel);
 }
 
 
@@ -240,6 +318,11 @@ standard_join_search(PlannerInfo *root, int levels_needed, List *initial_rels)
 			if (lev < levels_needed)
 				generate_gather_paths(root, rel, false);
 
+			if (bms_equal(rel->relids, root->all_baserels) && root->is_correlated_subplan)
+			{
+				bring_to_outer_query(root, rel, NIL);
+			}
+
 			/* Find and save the cheapest paths for this rel */
 			set_cheapest(rel);
 
@@ -305,6 +388,11 @@ join_search_one_level(PlannerInfo *root, int level)
 	ListCell   *r;
 	int			k;
 
+	/*
+	 * There should not be any joins on this level yet, unless we're retrying
+	 * with all plan types enabled, after failing to find any joins that
+	 * satisfy the current enable_*=false restrictions.
+	 */
 	Assert(joinrels[level] == NIL);
 
 	/* Set join_cur_level so that new joinrels are added to proper list */
@@ -743,7 +831,7 @@ join_is_legal(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2,
 			/*
 			 * The proposed join could still be legal, but only if we're
 			 * allowed to associate it into the RHS of this SJ.  That means
-			 * this SJ must be a LEFT join (not SEMI or ANTI, and certainly
+			 * this SJ must be a LEFT join (not SEMI, ANTI or LASJ, and certainly
 			 * not FULL) and the proposed join must not overlap the LHS.
 			 */
 			if (sjinfo->jointype != JOIN_LEFT ||
@@ -938,9 +1026,9 @@ has_join_restriction(PlannerInfo *root, RelOptInfo *rel)
 
 
 /*
- * restriction_is_constant_false --- is a restrictlist just FALSE?
+ * restriction_is_constant_false --- is a restrictlist just false?
  *
- * In cases where a qual is provably constant FALSE, eval_const_expressions
+ * In cases where a qual is provably constant false, eval_const_expressions
  * will generally have thrown away anything that's ANDed with it.  In outer
  * join situations this will leave us computing cartesian products only to
  * decide there's no match for an outer row, which is pretty stupid.  So,
