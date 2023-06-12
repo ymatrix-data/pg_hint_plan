@@ -29,4 +29,4 @@ pg_hint_plan.o: core.c make_join_rel.c pg_stat_statements.c
 
 OBJS = pg_hint_plan.o
 
-override CPPFLAGS += -I$(top_builddir)/src/pl/plpgsql/src
+override CPPFLAGS += -I$(top_srcdir)/src/pl/plpgsql/src
