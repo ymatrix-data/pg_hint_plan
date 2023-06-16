@@ -20,7 +20,7 @@ include $(top_builddir)/src/Makefile.global
 include $(top_srcdir)/contrib/contrib-global.mk
 endif
 
-ifneq ($(shell uname), SunOS)
+ifeq (,$(filter $(shell uname),Darwin SunOS))
 LDFLAGS+=-Wl,--build-id
 endif
 
