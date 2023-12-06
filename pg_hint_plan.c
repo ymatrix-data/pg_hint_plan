@@ -426,6 +426,7 @@ typedef struct HintParser
 	HintKeyword			hint_keyword;
 } HintParser;
 
+
 /* Module callbacks */
 void		_PG_init(void);
 void		_PG_fini(void);
@@ -550,6 +551,173 @@ static int set_config_int32_option(const char *name, int32 value,
 									GucContext context);
 static int set_config_double_option(const char *name, double value,
 									GucContext context);
+
+/* Motion functions*/
+static void hash_inner_and_outer(PlannerInfo *root,
+					 RelOptInfo *joinrel,
+					 RelOptInfo *outerrel,
+					 RelOptInfo *innerrel,
+					 JoinType jointype,
+					 JoinPathExtraData *extra);
+static void try_hashjoin_path(PlannerInfo *root,
+				  RelOptInfo *joinrel,
+				  Path *outer_path,
+				  Path *inner_path,
+				  List *hashclauses,
+				  JoinType jointype,
+				  JoinType orig_jointype,
+				  JoinPathExtraData *extra);
+void add_paths_to_joinrel_motion_wrapper(PlannerInfo *root,
+					 RelOptInfo *joinrel,
+					 RelOptInfo *outerrel,
+					 RelOptInfo *innerrel,
+					 JoinType jointype,
+					 SpecialJoinInfo *sjinfo,
+					 List *restrictlist);
+Path * pg_hint_plan_create_hashjoin_path(PlannerInfo *root,
+					 RelOptInfo *joinrel,
+					 JoinType jointype,
+					 JoinType orig_jointype,		/* CDB */
+					 JoinCostWorkspace *workspace,
+					 JoinPathExtraData *extra,
+					 Path *outer_path,
+					 Path *inner_path,
+					 bool parallel_hash,
+#ifdef MATRIXDB_VERSION
+					 bool consider_replicate,
+#endif
+					 List *restrict_clauses,
+					 Relids required_outer,
+					 List *redistribution_clauses,	/* CDB */
+					 List *hashclauses);
+static bool try_redistribute(PlannerInfo *root, CdbpathMfjRel *g, CdbpathMfjRel *o,
+				 List *redistribution_clauses);
+static Path *add_rowid_to_path(PlannerInfo *root, Path *path, int *rowidexpr_id);
+static bool cdbpath_match_preds_to_distkey_tail(CdbpathMatchPredsContext *ctx,
+									ListCell *distkeycell);
+static bool cdbpath_match_preds_to_distkey(PlannerInfo *root,
+							   List *mergeclause_list,
+							   Path *path,
+							   CdbPathLocus locus,
+							   CdbPathLocus *colocus);			
+static bool cdbpath_distkeys_from_preds(PlannerInfo *root,
+							List *mergeclause_list,
+							Path *a_path,
+							int numsegments,
+#ifdef MATRIXDB_VERSION
+							int16 *contentids,
+							int parallel_workers,
+							CdbPathLocus *a_locus,  /* OUT */
+							CdbPathLocus *b_locus);  /* OUT */
+#else /* MATRIXDB_VERSION */
+							CdbPathLocus *a_locus,	/* OUT */
+							CdbPathLocus *b_locus);	/* OUT */
+#endif /* MATRIXDB_VERSION */
+
+static List *select_cdb_redistribute_clauses(PlannerInfo *root,
+								RelOptInfo *joinrel,
+								RelOptInfo *outerrel,
+								RelOptInfo *innerrel,
+								List *restrictlist,
+								JoinType jointype);
+static List *select_mergejoin_clauses(PlannerInfo *root,
+									  RelOptInfo *joinrel,
+									  RelOptInfo *outerrel,
+									  RelOptInfo *innerrel,
+									  List *restrictlist,
+									  JoinType jointype,
+									  bool *mergejoin_allowed);
+static void sort_inner_and_outer(PlannerInfo *root, RelOptInfo *joinrel,
+								 RelOptInfo *outerrel, RelOptInfo *innerrel,
+								 JoinType jointype, JoinPathExtraData *extra);
+static void match_unsorted_outer(PlannerInfo *root, RelOptInfo *joinrel,
+								 RelOptInfo *outerrel, RelOptInfo *innerrel,
+								 JoinType jointype, JoinPathExtraData *extra);
+static inline bool
+clause_sides_match_join(RestrictInfo *rinfo, RelOptInfo *outerrel,
+						RelOptInfo *innerrel);
+static void
+try_partial_hashjoin_path(PlannerInfo *root,
+						  RelOptInfo *joinrel,
+						  Path *outer_path,
+						  Path *inner_path,
+						  List *hashclauses,
+						  JoinType jointype,
+						  JoinType orig_jointype,
+						  JoinPathExtraData *extra,
+						  bool parallel_hash);
+static bool
+cdbpath_eclass_constant_is_hashable(EquivalenceClass *ec, Oid hashOpFamily);
+static bool
+ECAllMemberContainParam(EquivalenceClass *ec, CdbpathMatchPredsContext *ctx);
+static DistributionKey *
+makeDistributionKeyForEC(EquivalenceClass *eclass, Oid opfamily);
+static void
+consider_parallel_mergejoin(PlannerInfo *root,
+							RelOptInfo *joinrel,
+							RelOptInfo *outerrel,
+							RelOptInfo *innerrel,
+							JoinType jointype,
+							JoinPathExtraData *extra,
+							Path *inner_cheapest_total);
+static void
+try_mergejoin_path(PlannerInfo *root,
+				   RelOptInfo *joinrel,
+				   Path *outer_path,
+				   Path *inner_path,
+				   List *pathkeys,
+				   List *mergeclauses,
+				   List *outersortkeys,
+				   List *innersortkeys,
+				   JoinType jointype,
+				   JoinType orig_jointype,
+				   JoinPathExtraData *extra,
+				   bool is_partial);
+static void
+try_nestloop_path(PlannerInfo *root,
+				  RelOptInfo *joinrel,
+				  Path *outer_path,
+				  Path *inner_path,
+				  List *pathkeys,
+				  JoinType jointype,
+				  JoinType orig_jointype,	/* CDB */
+				  JoinPathExtraData *extra);
+static void
+try_partial_mergejoin_path(PlannerInfo *root,
+						   RelOptInfo *joinrel,
+						   Path *outer_path,
+						   Path *inner_path,
+						   List *pathkeys,
+						   List *mergeclauses,
+						   List *outersortkeys,
+						   List *innersortkeys,
+						   JoinType jointype,
+#ifdef MATRIXDB_VERSION
+						   JoinType orig_jointype,
+#endif
+						   JoinPathExtraData *extra);
+
+static void
+generate_mergejoin_paths(PlannerInfo *root,
+						 RelOptInfo *joinrel,
+						 RelOptInfo *innerrel,
+						 Path *outerpath,
+						 JoinType jointype,
+						 JoinPathExtraData *extra,
+						 bool useallclauses,
+						 Path *inner_cheapest_total,
+						 List *merge_pathkeys,
+						 bool is_partial);
+				
+static void
+consider_parallel_nestloop(PlannerInfo *root,
+						   RelOptInfo *joinrel,
+						   RelOptInfo *outerrel,
+						   RelOptInfo *innerrel,
+						   JoinType jointype,
+						   JoinPathExtraData *extra);
+static bool
+expr_param_walker(Expr *expr, Bitmapset** param_ids);
 
 /* GUC variables */
 static bool	pg_hint_plan_enable_hint = true;
@@ -6287,10 +6455,10 @@ fail:							/* can't do this join */
 #define add_paths_to_joinrel add_paths_to_joinrel_wrapper
 #include "make_join_rel.c"
 
+#include "pg_stat_statements.c"
+
 #undef add_paths_to_joinrel
 #define add_paths_to_joinrel add_paths_to_joinrel_motion_wrapper
 #define cdbpath_motion_for_join cdbpath_motion_for_join_wrapper
-#define create_hashjoin_path create_hashjoin_path_wrapper
+#define create_hashjoin_path pg_hint_plan_create_hashjoin_path
 #include "motion.c"
-
-#include "pg_stat_statements.c"
