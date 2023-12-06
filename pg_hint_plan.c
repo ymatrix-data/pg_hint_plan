@@ -8,6 +8,7 @@
  *-------------------------------------------------------------------------
  */
 #include <string.h>
+#include <math.h>
 
 #include "postgres.h"
 #include "access/genam.h"
@@ -60,6 +61,28 @@
 
 /* PostgreSQL */
 #include "access/htup_details.h"
+
+
+#include "executor/executor.h"
+#include "optimizer/planmain.h"
+#include "optimizer/tlist.h"
+#include "executor/nodeHash.h"                  /* ExecHashRowSize() */
+
+#include "foreign/fdwapi.h"
+#include "utils/selfuncs.h"
+#include "catalog/pg_operator.h"
+#include "catalog/pg_proc.h"
+#include "cdb/cdbhash.h"        /* cdb_default_distribution_opfamily_for_type() */
+#include "cdb/cdbpathlocus.h"
+#include "cdb/cdbutil.h"		/* getgpsegmentCount() */
+#include "cdb/cdbvars.h"
+#include "utils/guc.h"
+
+#ifdef MATRIXDB_VERSION
+#include <float.h>
+
+#include "nodes/print.h"
+#endif /* MATRIXDB_VERSION */
 
 #ifdef PG_MODULE_MAGIC
 PG_MODULE_MAGIC;
@@ -535,6 +558,7 @@ static int	pg_hint_plan_parse_message_level = INFO;
 static int	pg_hint_plan_debug_message_level = LOG;
 /* Default is off, to keep backward compatibility. */
 static bool	pg_hint_plan_enable_hint_table = false;
+static bool pg_hint_plan_enable_broadcast_motion = true;
 
 static int plpgsql_recurse_level = 0;		/* PLpgSQL recursion level            */
 static int recurse_level = 0;		/* recursion level incl. direct SPI calls */
@@ -700,6 +724,17 @@ _PG_init(void)
 							 NULL,
 							 &pg_hint_plan_enable_hint_table,
 							 false,
+							 PGC_USERSET,
+							 0,
+							 NULL,
+							 NULL,
+							 NULL);
+
+	DefineCustomBoolVariable("pg_hint_plan.enable_broadcast_motion",
+							 "Enable broadcast motion to effect plan",
+							 NULL,
+							 &pg_hint_plan_enable_broadcast_motion,
+							 true,
 							 PGC_USERSET,
 							 0,
 							 NULL,
@@ -4651,7 +4686,7 @@ add_paths_to_joinrel_wrapper(PlannerInfo *root,
 			set_join_config_options(join_hint->enforce_mask,
 									current_hint_state->context);
 
-			add_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype,
+			add_paths_to_joinrel_motion_wrapper(root, joinrel, outerrel, innerrel, jointype,
 								 sjinfo, restrictlist);
 			join_hint->base.state = HINT_STATE_USED;
 		}
@@ -4659,7 +4694,7 @@ add_paths_to_joinrel_wrapper(PlannerInfo *root,
 		{
 			set_join_config_options(DISABLE_ALL_JOIN,
 									current_hint_state->context);
-			add_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype,
+			add_paths_to_joinrel_motion_wrapper(root, joinrel, outerrel, innerrel, jointype,
 								 sjinfo, restrictlist);
 		}
 
@@ -4669,7 +4704,7 @@ add_paths_to_joinrel_wrapper(PlannerInfo *root,
 		AtEOXact_GUC(true, save_nestlevel);
 	}
 	else
-		add_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype,
+		add_paths_to_joinrel_motion_wrapper(root, joinrel, outerrel, innerrel, jointype,
 							 sjinfo, restrictlist);
 }
 
@@ -5063,6 +5098,1185 @@ void plpgsql_query_erase_callback(ResourceReleasePhase phase,
 	plpgsql_recurse_level = 0;
 }
 
+
+
+/*
+ * cdbpath_motion_for_join_wrapper
+ *
+ * Decides where a join should be done.  Adds Motion operators atop
+ * the subpaths if needed to deliver their results to the join locus.
+ * Returns the join locus if ok, or a null locus otherwise. If
+ * jointype is JOIN_SEMI_DEDUP or JOIN_SEMI_DEDUP_REVERSE, this also
+ * tacks a RowIdExpr on one side of the join, and *p_rowidexpr_id is
+ * set to the ID of that. The caller is expected to uniquefy
+ * the result after the join, passing the rowidexpr_id to
+ * create_unique_rowid_path().
+ *
+ * mergeclause_list is a List of RestrictInfo.  Its members are
+ * the equijoin predicates between the outer and inner rel.
+ * It comes from select_mergejoin_clauses() in joinpath.c.
+ */
+CdbPathLocus
+cdbpath_motion_for_join_wrapper(PlannerInfo *root,
+						JoinType jointype,	/* JOIN_INNER/FULL/LEFT/RIGHT/IN */
+						Path **p_outer_path,	/* INOUT */
+						Path **p_inner_path,	/* INOUT */
+						int *p_rowidexpr_id,	/* OUT */
+						List *redistribution_clauses, /* equijoin RestrictInfo list */
+						List *restrict_clauses,
+						List *outer_pathkeys,
+						List *inner_pathkeys,
+						bool outer_require_existing_order,
+#ifdef MATRIXDB_VERSION
+						bool inner_require_existing_order,
+						bool consider_replicate,
+						bool parallel_hash)
+#else /* MATRIXDB_VERSION */
+						bool inner_require_existing_order)
+#endif /* MATRIXDB_VERSION */
+{
+	CdbpathMfjRel outer;
+	CdbpathMfjRel inner;
+	int			numsegments;
+	bool		join_quals_contain_outer_references;
+	ListCell   *lc;
+
+	*p_rowidexpr_id = 0;
+
+	outer.pathkeys = outer_pathkeys;
+	inner.pathkeys = inner_pathkeys;
+	outer.path = *p_outer_path;
+	inner.path = *p_inner_path;
+	outer.locus = outer.path->locus;
+	inner.locus = inner.path->locus;
+	CdbPathLocus_MakeNull(&outer.move_to);
+	CdbPathLocus_MakeNull(&inner.move_to);
+
+	Assert(cdbpathlocus_is_valid(outer.locus));
+	Assert(cdbpathlocus_is_valid(inner.locus));
+
+	/*
+	 * Does the join quals contain references to outer query? If so, we must
+	 * evaluate them in the outer query's locus. That means pulling both
+	 * inputs to outer locus, and performing the join there.
+	 *
+	 * XXX: If there are pseudoconstant quals, they will be executed by a
+	 * gating Result with a One-Time Filter. In that case, the join's inputs
+	 * wouldn't need to be brought to the outer locus. We could execute the
+	 * join normally, and bring the result to the outer locus and put the
+	 * gating Result above the Motion, instead. But for now, we're not smart
+	 * like that.
+	 */
+	join_quals_contain_outer_references = false;
+	foreach(lc, restrict_clauses)
+	{
+		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+
+		if (rinfo->contain_outer_query_references)
+		{
+			join_quals_contain_outer_references = true;
+			break;
+		}
+	}
+
+	/*
+	 * Locus type Replicated can only be generated by join operation.
+	 * And in the function cdbpathlocus_join there is a rule:
+	 * <any locus type> join <Replicated> => any locus type
+	 * Proof by contradiction, it shows that when code arrives here,
+	 * is is impossible that any of the two input paths' locus
+	 * is Replicated. So we add two asserts here.
+	 */
+	Assert(!CdbPathLocus_IsReplicated(outer.locus));
+	Assert(!CdbPathLocus_IsReplicated(inner.locus));
+
+	if (CdbPathLocus_IsReplicated(outer.locus) ||
+		CdbPathLocus_IsReplicated(inner.locus))
+		goto fail;
+
+	outer.has_wts = cdbpath_contains_wts(outer.path);
+	inner.has_wts = cdbpath_contains_wts(inner.path);
+
+	/* For now, inner path should not contain WorkTableScan */
+	Assert(!inner.has_wts);
+
+	/*
+	 * If outer rel contains WorkTableScan and inner rel is hash distributed,
+	 * unfortunately we have to pretend that inner is randomly distributed,
+	 * otherwise we may end up with redistributing outer rel.
+	 */
+	if (outer.has_wts && inner.locus.distkey != NIL)
+#ifdef MATRIXDB_VERSION
+		CdbPathLocus_MakeStrewn(&inner.locus,
+								CdbPathLocus_NumSegments(inner.locus),
+								inner.locus.contentids,
+								inner.path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+		CdbPathLocus_MakeStrewn(&inner.locus,
+								CdbPathLocus_NumSegments(inner.locus));
+#endif /* MATRIXDB_VERSION */
+
+#ifdef MATRIXDB_VERSION
+	/*
+	 * If outer has wts, the outer's locus type always same with recursive
+	 * cte's starting conditions. If outer is hash distributed with id, when
+	 * join this node to inner node, inner's locus type has been changed to
+	 * strewn, and would create a redistributed motion with distributed key
+	 * id for inner node, so we also reset outer's locus type to strewn when
+	 * the outer's locus type is hash distributed, replace redistributed motion
+	 * to broadcast motion.
+	 */
+	if (outer.has_wts && outer.locus.distkey != NIL)
+		CdbPathLocus_MakeStrewn(&outer.locus,
+								CdbPathLocus_NumSegments(outer.locus),
+								outer.locus.contentids,
+								outer.path->parallel_workers);
+#endif /* MATRIXDB_VERSION */
+
+	/*
+	 * Caller can specify an ordering for each source path that is the same as
+	 * or weaker than the path's existing ordering. Caller may insist that we
+	 * do not add motion that would lose the specified ordering property;
+	 * otherwise the given ordering is preferred but not required. A required
+	 * NIL ordering means no motion is allowed for that path.
+	 */
+	outer.require_existing_order = outer_require_existing_order;
+	inner.require_existing_order = inner_require_existing_order;
+
+	/*
+	 * Don't consider replicating the preserved rel of an outer join, or the
+	 * current-query rel of a join between current query and subquery.
+	 *
+	 * Path that contains WorkTableScan cannot be replicated.
+	 */
+	/* ok_to_replicate means broadcast */
+#ifdef MATRIXDB_VERSION
+	set_ok_to_replicate(consider_replicate && !outer.has_wts, outer);
+	set_ok_to_replicate(consider_replicate, inner);
+
+#else
+	outer.ok_to_replicate = !outer.has_wts;
+	inner.ok_to_replicate = true;
+#endif
+	switch (jointype)
+	{
+		case JOIN_INNER:
+		case JOIN_UNIQUE_OUTER:
+		case JOIN_UNIQUE_INNER:
+			break;
+		case JOIN_SEMI:
+		case JOIN_ANTI:
+		case JOIN_LEFT:
+		case JOIN_LASJ_NOTIN:
+			set_ok_to_replicate(false, outer);
+			break;
+		case JOIN_RIGHT:
+			set_ok_to_replicate(false, inner);
+			break;
+		case JOIN_FULL:
+			set_ok_to_replicate(false, outer);
+			set_ok_to_replicate(false, inner);
+			break;
+
+		case JOIN_DEDUP_SEMI:
+
+			/*
+			 * In this plan type, we generate a unique row ID on the outer
+			 * side of the join, perform the join, possibly broadcasting the
+			 * outer side, and remove duplicates after the join, so that only
+			 * one row for each input outer row remains.
+			 *
+			 * If the outer input is General or SegmentGeneral, it's available
+			 * in all the segments, but we cannot reliably generate a row ID
+			 * to distinguish each logical row in that case. So force the
+			 * input to a single node first in that case.
+			 *
+			 * In previous Greenplum versions, we assumed that we can generate
+			 * a unique row ID for General paths, by generating the same
+			 * sequence of numbers on each segment. That works as long as the
+			 * rows are in the same order on each segment, but it seemed like
+			 * a risky assumption. And it didn't work on SegmentGeneral paths
+			 * (i.e. replicated tables) anyway.
+			 */
+			if (!CdbPathLocus_IsPartitioned(inner.locus))
+				goto fail;
+
+			if (CdbPathLocus_IsPartitioned(outer.locus) ||
+				CdbPathLocus_IsBottleneck(outer.locus))
+			{
+				/* ok */
+			}
+			else if (CdbPathLocus_IsGeneral(outer.locus))
+			{
+				CdbPathLocus_MakeSingleQE(&outer.locus,
+										  CdbPathLocus_NumSegments(inner.locus));
+				outer.path->locus = outer.locus;
+
+			}
+			else if (CdbPathLocus_IsSegmentGeneral(outer.locus))
+			{
+				CdbPathLocus_MakeSingleQE(&outer.locus,
+										  CdbPathLocus_CommonSegments(inner.locus,
+																	  outer.locus));
+				outer.path->locus = outer.locus;
+			}
+			else
+				goto fail;
+			set_ok_to_replicate(false, inner);
+			outer.path = add_rowid_to_path(root, outer.path, p_rowidexpr_id);
+			*p_outer_path = outer.path;
+			break;
+
+		case JOIN_DEDUP_SEMI_REVERSE:
+			/* same as JOIN_DEDUP_SEMI, but with inner and outer reversed */
+			if (!CdbPathLocus_IsPartitioned(outer.locus))
+				goto fail;
+			if (CdbPathLocus_IsPartitioned(inner.locus) ||
+				CdbPathLocus_IsBottleneck(inner.locus))
+			{
+				/* ok */
+			}
+			else if (CdbPathLocus_IsGeneral(inner.locus))
+			{
+				CdbPathLocus_MakeSingleQE(&inner.locus,
+										  CdbPathLocus_NumSegments(outer.locus));
+				inner.path->locus = inner.locus;
+			}
+			else if (CdbPathLocus_IsSegmentGeneral(inner.locus))
+			{
+				CdbPathLocus_MakeSingleQE(&inner.locus,
+										  CdbPathLocus_CommonSegments(outer.locus,
+																	  inner.locus));
+				inner.path->locus = inner.locus;
+			}
+			else
+				goto fail;
+			set_ok_to_replicate(false, outer);
+			inner.path = add_rowid_to_path(root, inner.path, p_rowidexpr_id);
+			*p_inner_path = inner.path;
+			break;
+
+		default:
+
+			/*
+			 * The caller should already have transformed
+			 * JOIN_UNIQUE_INNER/OUTER into JOIN_INNER
+			 */
+			elog(ERROR, "unexpected join type %d", jointype);
+	}
+
+	/* Get rel sizes. */
+	outer.bytes = outer.path->rows * outer.path->pathtarget->width;
+	inner.bytes = inner.path->rows * inner.path->pathtarget->width;
+
+	if (join_quals_contain_outer_references)
+	{
+		if (CdbPathLocus_IsOuterQuery(outer.locus) &&
+			CdbPathLocus_IsOuterQuery(inner.locus))
+			return outer.locus;
+
+		if (!CdbPathLocus_IsOuterQuery(outer.locus))
+			CdbPathLocus_MakeOuterQuery(&outer.move_to);
+		if (!CdbPathLocus_IsOuterQuery(inner.locus))
+			CdbPathLocus_MakeOuterQuery(&inner.move_to);
+	}
+	else if (CdbPathLocus_IsOuterQuery(outer.locus) ||
+			 CdbPathLocus_IsOuterQuery(inner.locus))
+	{
+		/*
+		 * If one side of the join has "outer query" locus, must bring the
+		 * other side there too.
+		 */
+		if (CdbPathLocus_IsOuterQuery(outer.locus) &&
+			CdbPathLocus_IsOuterQuery(inner.locus))
+			return outer.locus;
+
+		if (CdbPathLocus_IsOuterQuery(outer.locus))
+			inner.move_to = outer.locus;
+		else
+			outer.move_to = inner.locus;
+	}
+	else if (CdbPathLocus_IsGeneral(outer.locus) ||
+			 CdbPathLocus_IsGeneral(inner.locus))
+	{
+		/*
+		 * Motion not needed if either source is everywhere (e.g. a constant).
+		 *
+		 * But if a row is everywhere and is preserved in an outer join, we don't
+		 * want to preserve it in every qExec process where it is unmatched,
+		 * because that would produce duplicate null-augmented rows. So in that
+		 * case, bring all the partitions to a single qExec to be joined. CDB
+		 * TODO: Can this case be handled without introducing a bottleneck?
+		 */
+		/*
+		 * The logic for the join result's locus is (outer's locus is general):
+		 *   1. if outer is ok to replicated, then result's locus is the same
+		 *      as inner's locus
+		 *   2. if outer is not ok to replicated (like left join or wts cases)
+		 *      2.1 if inner's locus is hashed or hashOJ, we try to redistribute
+		 *          outer as the inner, if fails, make inner singleQE
+		 *      2.2 if inner's locus is strewn, we try to redistribute
+		 *          outer and inner, if fails, make inner singleQE
+		 *      2.3 just return the inner's locus, no motion is needed
+		 */
+		CdbpathMfjRel *general = &outer;
+		CdbpathMfjRel *other = &inner;
+
+		/*
+		 * both are general, the result is general
+		 */
+		if (CdbPathLocus_IsGeneral(outer.locus) &&
+			CdbPathLocus_IsGeneral(inner.locus))
+			return outer.locus;
+
+		if (CdbPathLocus_IsGeneral(inner.locus))
+		{
+			general = &inner;
+			other = &outer;
+		}
+
+		/* numsegments of General locus is always -1 */
+		Assert(CdbPathLocus_NumSegments(general->locus) == -1);
+
+		/*
+		 * If general can happen everywhere (ok_to_replicate)
+		 * then it acts like identity: 
+		 *     General join other_locus => other_locus
+		 */
+		if (general->ok_to_replicate)
+			return other->locus;
+
+		if (!CdbPathLocus_IsPartitioned(other->locus))
+		{
+			/*
+			 * If general is not ok_to_replicate, for example,
+			 * generate_series(1, 10) left join xxxx, only for
+			 * some specific locus types general can act as
+			 * identity:
+			 *    General join other_locus => other_locus, if and only if
+			 *    other_locus in (singleQE, Entry).
+			 * Here other's locus:
+			 *    - cannot be general (it has already handled)
+			 *    - cannot be replicated (assert at the beginning of the function)
+			 */
+			Assert(CdbPathLocus_IsBottleneck(other->locus) ||
+				   CdbPathLocus_IsSegmentGeneral(other->locus));
+			return other->locus;
+		}
+		/*
+		 * If other's locus is partitioned, we first try to
+		 * add redistribute motion, if fails, we gather other
+		 * to singleQE.
+		 */
+		else if (!try_redistribute(root, general, other, redistribution_clauses))
+		{
+			/*
+			 * FIXME: do we need test other's movable?
+			 */
+			CdbPathLocus_MakeSingleQE(&other->move_to,
+									  CdbPathLocus_NumSegments(other->locus));
+		}
+	}
+	else if (CdbPathLocus_IsSegmentGeneral(outer.locus) ||
+			 CdbPathLocus_IsSegmentGeneral(inner.locus))
+	{
+		/*
+		 * the whole branch handles the case that at least
+		 * one of the two locus is SegmentGeneral. The logic
+		 * is:
+		 *   - if both are SegmentGeneral:
+		 *       1. if both locus are equal, no motion needed, simply return
+		 *       2. For update cases. If resultrelation
+		 *          is SegmentGeneral, the update must execute
+		 *          on each segment of the resultrelation, if resultrelation's
+		 *          numsegments is larger, the only solution is to broadcast
+		 *          other
+		 *       3. no motion is needed, change both numsegments to common
+		 *   - if only one of them is SegmentGeneral :
+		 *       1. consider update case, if resultrelation is SegmentGeneral,
+		 *          the only solution is to broadcast the other
+		 *       2. if other's locus is singleQE or entry, make SegmentGeneral
+		 *          to other's locus
+		 *       3. the remaining possibility of other's locus is partitioned
+		 *          3.1 if SegmentGeneral is not ok_to_replicate, try to
+		 *              add redistribute motion, if fails gather each to
+		 *              singleQE
+		 *          3.2 if SegmentGeneral's numsegments is larger, just return
+		 *              other's locus
+		 *          3.3 try to add redistribute motion, if fails, gather each
+		 *              to singleQE
+		 */
+		CdbpathMfjRel *segGeneral;
+		CdbpathMfjRel *other;
+
+		if (CdbPathLocus_IsSegmentGeneral(outer.locus) &&
+			CdbPathLocus_IsSegmentGeneral(inner.locus))
+		{
+			/*
+			 * use_common to indicate whether we should
+			 * return a segmentgeneral locus with common
+			 * numsegments.
+			 */
+			bool use_common = true;
+
+#ifdef MATRIXDB_VERSION
+			int			numcommon;
+			int16	   *commoncontentids;
+
+			commoncontentids = find_locus_common_contentids(outer.locus.contentids,
+															outer.locus.numsegments,
+															inner.locus.contentids,
+															inner.locus.numsegments,
+															&numcommon);
+			/* Handle the case of two same locuses */
+			if ((CdbPathLocus_NumSegments(outer.locus) == numcommon) &&
+				(CdbPathLocus_NumSegments(inner.locus) == numcommon))
+				return inner.locus;
+#else /* MATRIXDB_VERSION */
+			/*
+			 * Handle the case two same locus
+			 */
+			if (CdbPathLocus_NumSegments(outer.locus) ==
+				CdbPathLocus_NumSegments(inner.locus))
+				return inner.locus;
+#endif /* MATRIXDB_VERSION */
+
+#ifdef MATRIXDB_VERSION
+			/*
+			 * Now, two locus' segments not equal
+			 * We should consider update resultrelation
+			 * if update,
+			 *   - resultrelation's segments not covered by the other one's, then
+			 *     we should broadcast the other
+			 *   - otherwise, results is common
+			 * else:
+			 *   common
+			 */
+#else /* MATRIXDB_VERSION */
+			/*
+			 * Now, two locus' numsegments not equal
+			 * We should consider update resultrelation
+			 * if update,
+			 *   - resultrelation's numsegments larger, then
+			 *     we should broadcast the other
+			 *   - otherwise, results is common
+			 * else:
+			 *   common
+			 */
+#endif /* MATRIXDB_VERSION */
+			if (root->upd_del_replicated_table > 0)
+			{
+#ifdef MATRIXDB_VERSION
+				if ((CdbPathLocus_NumSegments(outer.locus) > numcommon) &&
+					bms_is_member(root->upd_del_replicated_table,
+								  outer.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+#else /* MATRIXDB_VERSION */
+				if ((CdbPathLocus_NumSegments(outer.locus) >
+					 CdbPathLocus_NumSegments(inner.locus)) &&
+					bms_is_member(root->upd_del_replicated_table,
+								  outer.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+#endif /* MATRIXDB_VERSION */
+				{
+#ifdef MATRIXDB_VERSION
+					/*
+					 * the updated resultrelation is replicated table
+					 * and its segments are not covered, we should broadcast
+					 * the other path
+					 */
+#else /* MATRIXDB_VERSION */
+					/*
+					 * the updated resultrelation is replicated table
+					 * and its numsegments is larger, we should broadcast
+					 * the other path
+					 */
+#endif /* MATRIXDB_VERSION */
+					if (!inner.ok_to_replicate)
+						goto fail;
+
+					/*
+					 * FIXME: do we need to test inner's movable?
+					 */
+#ifdef MATRIXDB_VERSION
+					/* parallel mode is disabled for UPDATE/INSERT/DELETE */
+					Assert(outer.path->parallel_workers == 0);
+					CdbPathLocus_MakeReplicated(&inner.move_to,
+												CdbPathLocus_NumSegments(outer.locus),
+												outer.locus.contentids,
+												0);
+#else /* MATRIXDB_VERSION */
+					CdbPathLocus_MakeReplicated(&inner.move_to,
+												CdbPathLocus_NumSegments(outer.locus));
+#endif /* MATRIXDB_VERSION */
+
+					use_common = false;
+				}
+#ifdef MATRIXDB_VERSION
+				else if ((CdbPathLocus_NumSegments(inner.locus) > numcommon) &&
+						 bms_is_member(root->upd_del_replicated_table,
+									   inner.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+#else /* MATRIXDB_VERSION */
+				else if ((CdbPathLocus_NumSegments(outer.locus) <
+						  CdbPathLocus_NumSegments(inner.locus)) &&
+						 bms_is_member(root->upd_del_replicated_table,
+									   inner.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+#endif /* MATRIXDB_VERSION */
+				{
+#ifdef MATRIXDB_VERSION
+					/*
+					 * the updated resultrelation is replicated table
+					 * and its segments are not covered, we should broadcast
+					 * the other path
+					 */
+#else /* MATRIXDB_VERSION */
+					/*
+					 * the updated resultrelation is replicated table
+					 * and its numsegments is larger, we should broadcast
+					 * the other path
+					 */
+#endif /* MATRIXDB_VERSION */
+					if (!outer.ok_to_replicate)
+						goto fail;
+
+					/*
+					 * FIXME: do we need to test outer's movable?
+					 */
+#ifdef MATRIXDB_VERSION
+					/* parallel mode is disabled for UPDATE/INSERT/DELETE */
+					Assert(inner.path->parallel_workers == 0);
+					CdbPathLocus_MakeReplicated(&outer.move_to,
+												CdbPathLocus_NumSegments(inner.locus),
+												inner.locus.contentids,
+												0);
+#else /* MATRIXDB_VERSION */
+					CdbPathLocus_MakeReplicated(&outer.move_to,
+												CdbPathLocus_NumSegments(inner.locus));
+#endif /* MATRIXDB_VERSION */
+
+					use_common = false;
+				}
+			}
+			
+			if (use_common)
+			{
+#ifdef MATRIXDB_VERSION
+				/* The statement is not update a replicated table. */
+				if (numcommon == 0)
+				{
+					/*
+					 * No common segments, bring both sides to a same single QE.
+					 * Or we can redistribute each side on their join keys respectively,
+					 * to a same set of segments. Normally replicated table should
+					 * be not large, so we simply move them both to one segment.
+					 */
+					numcommon = CdbPathLocus_CommonSegments(outer.locus,
+															inner.locus);
+					CdbPathLocus_MakeSingleQE(&outer.move_to, numcommon);
+					CdbPathLocus_MakeSingleQE(&inner.move_to, numcommon);
+				}
+				else
+				{
+					/* Just return the segmentgeneral with common segments. */
+					outer.locus.numsegments = numcommon;
+					outer.locus.contentids = commoncontentids;
+					inner.locus.numsegments = numcommon;
+					inner.locus.contentids = commoncontentids;
+					return inner.locus;
+				}
+#else /* MATRIXDB_VERSION */
+				/*
+				 * The statement is not update a replicated table.
+				 * Just return the segmentgeneral with a smaller numsegments.
+				 */
+				numsegments = CdbPathLocus_CommonSegments(inner.locus,
+														  outer.locus);
+				outer.locus.numsegments = numsegments;
+				inner.locus.numsegments = numsegments;
+
+				return inner.locus;
+#endif /* MATRIXDB_VERSION */
+			}
+		}
+		else
+		{
+			if (CdbPathLocus_IsSegmentGeneral(outer.locus))
+			{
+				segGeneral = &outer;
+				other = &inner;
+			}
+			else
+			{
+				segGeneral = &inner;
+				other = &outer;
+			}
+
+			Assert(CdbPathLocus_IsBottleneck(other->locus) ||
+				   CdbPathLocus_IsPartitioned(other->locus));
+			
+			/*
+			 * For UPDATE/DELETE, replicated table can't guarantee a logic row has
+			 * same ctid or item pointer on each copy. If we broadcast matched tuples
+			 * to all segments, the segments may update the wrong tuples or can't
+			 * find a valid tuple according to ctid or item pointer.
+			 *
+			 * So For UPDATE/DELETE on replicated table, we broadcast other path so
+			 * all target tuples can be selected on all copys and then be updated
+			 * locally.
+			 */
+			if (root->upd_del_replicated_table > 0 &&
+				bms_is_member(root->upd_del_replicated_table,
+							  segGeneral->path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+			{
+				/*
+				 * For UPDATE on a replicated table, we have to do it
+				 * everywhere so that for each segment, we have to collect
+				 * all the information of other that is we should broadcast it
+				 */
+				
+				/*
+				 * FIXME: do we need to test other's movable?
+				 */
+#ifdef MATRIXDB_VERSION
+				/* parallel mode is disabled for UPDATE/INSERT/DELETE */
+				Assert(segGeneral->path->parallel_workers == 0);
+				CdbPathLocus_MakeReplicated(&other->move_to,
+											CdbPathLocus_NumSegments(segGeneral->locus),
+											segGeneral->locus.contentids,
+											0);
+#else /* MATRIXDB_VERSION */
+				CdbPathLocus_MakeReplicated(&other->move_to,
+											CdbPathLocus_NumSegments(segGeneral->locus));
+#endif /* MATRIXDB_VERSION */
+			}
+			else if (CdbPathLocus_IsBottleneck(other->locus))
+			{
+#ifdef MATRIXDB_VERSION
+				/* Bring the SegmentGeneral locus to the singleton one */
+				segGeneral->move_to = other->locus;
+#else /* MATRIXDB_VERSION */
+				/*
+				 * if the locus type is equal and segment count is unequal,
+				 * we will dispatch the one on more segments to the other
+				 */
+				numsegments = CdbPathLocus_CommonSegments(segGeneral->locus,
+														  other->locus);
+				segGeneral->move_to = other->locus;
+				segGeneral->move_to.numsegments = numsegments;
+#endif /* MATRIXDB_VERSION */
+			}
+			else
+			{
+				/*
+				 * This branch handles for partitioned other locus
+				 * hashed, hashoj, strewn
+				 */
+				Assert(CdbPathLocus_IsPartitioned(other->locus));
+				
+				if (!segGeneral->ok_to_replicate)
+				{
+					if (!try_redistribute(root, segGeneral,
+										  other, redistribution_clauses))
+					{
+						/*
+						 * FIXME: do we need to test movable?
+						 */
+#ifdef MATRIXDB_VERSION
+						/* Bring both sides to a same single QE */
+						int numcommon = CdbPathLocus_CommonSegments(segGeneral->locus,
+																	other->locus);
+						CdbPathLocus_MakeSingleQE(&segGeneral->move_to, numcommon);
+						CdbPathLocus_MakeSingleQE(&other->move_to, numcommon);
+#else /* MATRIXDB_VERSION */
+						CdbPathLocus_MakeSingleQE(&segGeneral->move_to,
+												  CdbPathLocus_NumSegments(segGeneral->locus));
+						CdbPathLocus_MakeSingleQE(&other->move_to,
+												  CdbPathLocus_NumSegments(other->locus));
+#endif /* MATRIXDB_VERSION */
+					}
+				}
+				else
+				{
+					/*
+					 * If all other's segments have segGeneral stored, then no motion
+					 * is needed.
+					 *
+					 * A sql to reach here:
+					 *     select * from d2 a join r1 b using (c1);
+					 * where d2 is a replicated table on 2 segment,
+					 *       r1 is a random table on 1 segments.
+					 */
+#ifdef MATRIXDB_VERSION
+					int		numcommon;
+					int16	*commoncontentids;
+					commoncontentids = find_locus_common_contentids(segGeneral->locus.contentids,
+																	segGeneral->locus.numsegments,
+																	other->locus.contentids,
+																	other->locus.numsegments,
+																	&numcommon);
+#endif /* MATRIXDB_VERSION */
+
+#ifdef MATRIXDB_VERSION
+					if (CdbPathLocus_NumSegments(other->locus) == numcommon)
+#else /* MATRIXDB_VERSION */
+					if (CdbPathLocus_NumSegments(segGeneral->locus) >=
+						CdbPathLocus_NumSegments(other->locus))
+#endif /* MATRIXDB_VERSION */
+						return other->locus;
+					else
+					{
+						if (!try_redistribute(root, segGeneral,
+											  other, redistribution_clauses))
+						{
+#ifdef MATRIXDB_VERSION
+							/*
+							 * FIXME: do we need to test movable?
+							 */
+							/* We don't use the above numcommon since it may be 0 */
+							numcommon = CdbPathLocus_CommonSegments(segGeneral->locus,
+																	other->locus);
+							CdbPathLocus_MakeSingleQE(&segGeneral->move_to, numcommon);
+							CdbPathLocus_MakeSingleQE(&other->move_to, numcommon);
+#else /* MATRIXDB_VERSION */
+							numsegments = CdbPathLocus_CommonSegments(segGeneral->locus,
+																	  other->locus);
+							/*
+							 * FIXME: do we need to test movable?
+							 */
+							CdbPathLocus_MakeSingleQE(&segGeneral->move_to, numsegments);
+							CdbPathLocus_MakeSingleQE(&other->move_to, numsegments);
+#endif /* MATRIXDB_VERSION */
+						}
+					}
+				}
+			}
+		}
+	}
+	/*
+	 * Is either source confined to a single process? NB: Motion to a single
+	 * process (qDisp or qExec) is the only motion in which we may use Merge
+	 * Receive to preserve an existing ordering.
+	 */
+	else if (CdbPathLocus_IsBottleneck(outer.locus) ||
+			 CdbPathLocus_IsBottleneck(inner.locus))
+	{							/* singleQE or entry db */
+		CdbpathMfjRel *single = &outer;
+		CdbpathMfjRel *other = &inner;
+		bool		single_immovable = (outer.require_existing_order &&
+										!outer_pathkeys) || outer.has_wts;
+		bool		other_immovable = inner.require_existing_order &&
+		!inner_pathkeys;
+
+		/*
+		 * If each of the sources has a single-process locus, then assign both
+		 * sources and the join to run in the same process, without motion.
+		 * The slice will be run on the entry db if either source requires it.
+		 */
+		if (CdbPathLocus_IsEntry(single->locus))
+		{
+			if (CdbPathLocus_IsBottleneck(other->locus))
+				return single->locus;
+		}
+		else if (CdbPathLocus_IsSingleQE(single->locus))
+		{
+			if (CdbPathLocus_IsBottleneck(other->locus))
+			{
+				/*
+				 * Can join directly on one of the common segments.
+				 */
+				numsegments = CdbPathLocus_CommonSegments(outer.locus,
+														  inner.locus);
+
+				other->locus.numsegments = numsegments;
+				return other->locus;
+			}
+		}
+
+		/* Let 'single' be the source whose locus is singleQE or entry. */
+		else
+		{
+			CdbSwap(CdbpathMfjRel *, single, other);
+			CdbSwap(bool, single_immovable, other_immovable);
+		}
+
+		Assert(CdbPathLocus_IsBottleneck(single->locus));
+		Assert(CdbPathLocus_IsPartitioned(other->locus));
+
+		/* If the bottlenecked rel can't be moved, bring the other rel to it. */
+		if (single_immovable)
+		{
+			if (other_immovable)
+				goto fail;
+			else
+				other->move_to = single->locus;
+		}
+
+		/* Redistribute single rel if joining on other rel's partitioning key */
+		else if (cdbpath_match_preds_to_distkey(root,
+												redistribution_clauses,
+												other->path,
+												other->locus,
+												&single->move_to))	/* OUT */
+		{
+			AssertEquivalent(CdbPathLocus_NumSegments(other->locus),
+							 CdbPathLocus_NumSegments(single->move_to));
+
+#ifdef MATRIXDB_VERSION
+			Assert(cdbpathlocus_contentids_equal(other->locus, single->move_to));
+#endif /* MATRIXDB_VERSION */
+		}
+
+		/* Replicate single rel if cheaper than redistributing both rels. */
+#ifdef MATRIXDB_VERSION
+		else if (single->ok_to_replicate &&
+				 (single->bytes * cdbpath_parallel_workers(other->path) <
+				  single->bytes + other->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&single->move_to,
+										CdbPathLocus_NumSegments(other->locus),
+										other->locus.contentids,
+										other->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+		else if (single->ok_to_replicate &&
+				 (single->bytes * CdbPathLocus_NumSegments(other->locus) <
+				  single->bytes + other->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&single->move_to,
+										CdbPathLocus_NumSegments(other->locus));
+#endif /* MATRIXDB_VERSION */
+
+		/*
+		 * Redistribute both rels on equijoin cols.
+		 *
+		 * Redistribute both to the same segments, here we choose the
+		 * same segments with other.
+		 */
+		else if (!other_immovable &&
+				 cdbpath_distkeys_from_preds(root,
+											 redistribution_clauses,
+											 single->path,
+											 CdbPathLocus_NumSegments(other->locus),
+#ifdef MATRIXDB_VERSION
+											 other->locus.contentids,
+											 Max(single->path->parallel_workers,
+												 other->path->parallel_workers),
+#endif /* MATRIXDB_VERSION */
+											 &single->move_to,	/* OUT */
+											 &other->move_to))	/* OUT */
+		{
+			/* ok */
+		}
+
+		/* Broadcast single rel for below cases. */
+		else if (single->ok_to_replicate &&
+				 (other_immovable ||
+				  single->bytes < other->bytes ||
+				  other->has_wts) && pg_hint_plan_enable_broadcast_motion)
+#ifdef MATRIXDB_VERSION
+			CdbPathLocus_MakeReplicated(&single->move_to,
+										CdbPathLocus_NumSegments(other->locus),
+										other->locus.contentids,
+										other->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+			CdbPathLocus_MakeReplicated(&single->move_to,
+										CdbPathLocus_NumSegments(other->locus));
+#endif /* MATRIXDB_VERSION */
+
+		/* Last resort: If possible, move all partitions of other rel to single QE. */
+		else if (!other_immovable)
+			other->move_to = single->locus;
+		else
+			goto fail;
+	}							/* singleQE or entry */
+
+	/*
+	 * No motion if partitioned alike and joining on the partitioning keys.
+	 */
+	
+#ifdef MATRIXDB_VERSION
+	else if (cdbpath_match_preds_to_both_distkeys(root, redistribution_clauses,
+												  outer.path, inner.path,
+												  outer.locus, inner.locus,
+												  parallel_hash)) 
+		return cdbpathlocus_join(jointype, outer.locus, inner.locus);
+												  
+#else /* MATRIXDB_VERSION */
+	else if (cdbpath_match_preds_to_both_distkeys(root, redistribution_clauses,
+												  outer.locus, inner.locus))
+		return cdbpathlocus_join(jointype, outer.locus, inner.locus);
+#endif /* MATRIXDB_VERSION */
+
+	/*
+	 * Both sources are partitioned.  Redistribute or replicate one or both.
+	 */
+	else
+	{							/* partitioned */
+		CdbpathMfjRel *large_rel = &outer;
+		CdbpathMfjRel *small_rel = &inner;
+
+		/* Which rel is bigger? */
+		if (large_rel->bytes < small_rel->bytes)
+			CdbSwap(CdbpathMfjRel *, large_rel, small_rel);
+
+		/* Both side are distribued in 1 segment, it can join without motion. */
+#ifdef MATRIXDB_VERSION
+		if (CdbPathLocus_NumSegments(large_rel->locus) == 1 &&
+			CdbPathLocus_NumSegments(small_rel->locus) == 1 &&
+			!(CdbPathLocus_ParallelWorkers(large_rel->locus) > 0 &&
+			  CdbPathLocus_ParallelWorkers(small_rel->locus) > 0) &&
+			cdbpathlocus_contentids_equal(large_rel->locus, small_rel->locus))
+		{
+			/* Join locus should be consistent with the partial path */
+			if (small_rel->locus.parallel_workers > large_rel->locus.parallel_workers)
+				return small_rel->locus;
+			else
+				return large_rel->locus;
+		}
+#else /* MATRIXDB_VERSION */
+		if (CdbPathLocus_NumSegments(large_rel->locus) == 1 &&
+			CdbPathLocus_NumSegments(small_rel->locus) == 1)
+			return large_rel->locus;
+#endif /* MATRIXDB_VERSION */
+
+		/* If joining on larger rel's partitioning key, redistribute smaller. */
+		if (!small_rel->require_existing_order &&
+			cdbpath_match_preds_to_distkey(root,
+										   redistribution_clauses,
+										   large_rel->path,
+										   large_rel->locus,
+										   &small_rel->move_to))	/* OUT */
+		{
+			AssertEquivalent(CdbPathLocus_NumSegments(large_rel->locus),
+							 CdbPathLocus_NumSegments(small_rel->move_to));
+
+#ifdef MATRIXDB_VERSION
+			Assert(cdbpathlocus_contentids_equal(large_rel->locus, small_rel->move_to));
+#endif /* MATRIXDB_VERSION */
+		}
+
+		/*
+		 * Replicate smaller rel if cheaper than redistributing larger rel.
+		 * But don't replicate a rel that is to be preserved in outer join.
+		 */
+#ifdef MATRIXDB_VERSION
+		else if (!small_rel->require_existing_order &&
+				 small_rel->ok_to_replicate &&
+				 (small_rel->bytes * cdbpath_parallel_workers(large_rel->path) <
+				  large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&small_rel->move_to,
+										CdbPathLocus_NumSegments(large_rel->locus),
+										large_rel->locus.contentids,
+										large_rel->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+		else if (!small_rel->require_existing_order &&
+				 small_rel->ok_to_replicate &&
+				 (small_rel->bytes * CdbPathLocus_NumSegments(large_rel->locus) <
+				  large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&small_rel->move_to,
+										CdbPathLocus_NumSegments(large_rel->locus));
+#endif /* MATRIXDB_VERSION */
+
+		/*
+		 * Replicate larger rel if cheaper than redistributing smaller rel.
+		 * But don't replicate a rel that is to be preserved in outer join.
+		 */
+#ifdef MATRIXDB_VERSION
+		else if (!large_rel->require_existing_order &&
+				 large_rel->ok_to_replicate &&
+				 (large_rel->bytes * cdbpath_parallel_workers(small_rel->path) <
+				  small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&large_rel->move_to,
+										CdbPathLocus_NumSegments(small_rel->locus),
+										small_rel->locus.contentids,
+										small_rel->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+		else if (!large_rel->require_existing_order &&
+				 large_rel->ok_to_replicate &&
+				 (large_rel->bytes * CdbPathLocus_NumSegments(small_rel->locus) <
+				  small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&large_rel->move_to,
+										CdbPathLocus_NumSegments(small_rel->locus));
+#endif /* MATRIXDB_VERSION */
+
+		/* If joining on smaller rel's partitioning key, redistribute larger. */
+		else if (!large_rel->require_existing_order &&
+				 cdbpath_match_preds_to_distkey(root,
+												redistribution_clauses,
+												small_rel->path,
+												small_rel->locus,
+												&large_rel->move_to))	/* OUT */
+		{
+			AssertEquivalent(CdbPathLocus_NumSegments(small_rel->locus),
+							 CdbPathLocus_NumSegments(large_rel->move_to));
+
+#ifdef MATRIXDB_VERSION
+			Assert(cdbpathlocus_contentids_equal(small_rel->locus, large_rel->move_to));
+#endif /* MATRIXDB_VERSION */
+		}
+
+		/* Replicate smaller rel if cheaper than redistributing both rels. */
+#ifdef MATRIXDB_VERSION
+		else if (!small_rel->require_existing_order &&
+				 small_rel->ok_to_replicate &&
+				 (small_rel->bytes * cdbpath_parallel_workers(large_rel->path) <
+				  small_rel->bytes + large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&small_rel->move_to,
+										CdbPathLocus_NumSegments(large_rel->locus),
+										large_rel->locus.contentids,
+										large_rel->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+		else if (!small_rel->require_existing_order &&
+				 small_rel->ok_to_replicate &&
+				 (small_rel->bytes * CdbPathLocus_NumSegments(large_rel->locus) <
+				  small_rel->bytes + large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&small_rel->move_to,
+										CdbPathLocus_NumSegments(large_rel->locus));
+#endif /* MATRIXDB_VERSION */
+
+		/* Replicate largeer rel if cheaper than redistributing both rels. */
+#ifdef MATRIXDB_VERSION
+		else if (!large_rel->require_existing_order &&
+				 large_rel->ok_to_replicate &&
+				 (large_rel->bytes * cdbpath_parallel_workers(small_rel->path) <
+				  large_rel->bytes + small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&large_rel->move_to,
+										CdbPathLocus_NumSegments(small_rel->locus),
+										small_rel->locus.contentids,
+										small_rel->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+		else if (!large_rel->require_existing_order &&
+				 large_rel->ok_to_replicate &&
+				 (large_rel->bytes * CdbPathLocus_NumSegments(small_rel->locus) <
+				  large_rel->bytes + small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+			CdbPathLocus_MakeReplicated(&large_rel->move_to,
+										CdbPathLocus_NumSegments(small_rel->locus));
+#endif /* MATRIXDB_VERSION */
+
+#ifdef MATRIXDB_VERSION
+		/*
+		 * Redistribute both rels on equijoin cols.
+		 *
+		 * It is hard to say if it is better to distribute the results
+		 * on large_rel's segment map, just simply choose one now.
+		 */
+#else /* MATRIXDB_VERSION */
+		/*
+		 * Redistribute both rels on equijoin cols.
+		 *
+		 * the two results should all be distributed on the same segments,
+		 * here we make them the same with common segments for safe
+		 * TODO: how about distribute them both to ALL segments?
+		 */
+#endif /* MATRIXDB_VERSION */
+		else if (!small_rel->require_existing_order &&
+				 !small_rel->has_wts &&
+				 !large_rel->require_existing_order &&
+				 !large_rel->has_wts &&
+				 cdbpath_distkeys_from_preds(root,
+											 redistribution_clauses,
+											 large_rel->path,
+#ifdef MATRIXDB_VERSION
+											 large_rel->locus.numsegments,
+											 large_rel->locus.contentids,
+											 Max(large_rel->path->parallel_workers,
+												 small_rel->path->parallel_workers),
+#else /* MATRIXDB_VERSION */
+											 CdbPathLocus_CommonSegments(large_rel->locus,
+																		 small_rel->locus),
+#endif /* MATRIXDB_VERSION */
+											 &large_rel->move_to,
+											 &small_rel->move_to))
+		{
+			/* ok */
+		}
+
+		/*
+		 * No usable equijoin preds, or couldn't consider the preferred
+		 * motion. Replicate one rel if possible. MPP TODO: Consider number of
+		 * seg dbs per host.
+		 */
+		else if (!small_rel->require_existing_order &&
+				 small_rel->ok_to_replicate && pg_hint_plan_enable_broadcast_motion)
+#ifdef MATRIXDB_VERSION
+			CdbPathLocus_MakeReplicated(&small_rel->move_to,
+										CdbPathLocus_NumSegments(large_rel->locus),
+										large_rel->locus.contentids,
+										large_rel->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+			CdbPathLocus_MakeReplicated(&small_rel->move_to,
+										CdbPathLocus_NumSegments(large_rel->locus));
+#endif /* MATRIXDB_VERSION */
+		else if (!large_rel->require_existing_order &&
+				 large_rel->ok_to_replicate && pg_hint_plan_enable_broadcast_motion)
+#ifdef MATRIXDB_VERSION
+			CdbPathLocus_MakeReplicated(&large_rel->move_to,
+										CdbPathLocus_NumSegments(small_rel->locus),
+										small_rel->locus.contentids,
+										small_rel->path->parallel_workers);
+#else /* MATRIXDB_VERSION */
+			CdbPathLocus_MakeReplicated(&large_rel->move_to,
+										CdbPathLocus_NumSegments(small_rel->locus));
+#endif /* MATRIXDB_VERSION */
+
+		/* Last resort: Move both rels to a single qExec. */
+		else
+		{
+			int numsegments = CdbPathLocus_CommonSegments(outer.locus,
+														  inner.locus);
+			CdbPathLocus_MakeSingleQE(&outer.move_to, numsegments);
+			CdbPathLocus_MakeSingleQE(&inner.move_to, numsegments);
+		}
+	}							/* partitioned */
+
+	/*
+	 * Move outer.
+	 */
+	if (!CdbPathLocus_IsNull(outer.move_to))
+	{
+		outer.path = cdbpath_create_motion_path(root,
+												outer.path,
+												outer_pathkeys,
+												outer.require_existing_order,
+												outer.move_to);
+		if (!outer.path)		/* fail if outer motion not feasible */
+			goto fail;
+
+		if (IsA(outer.path, MaterialPath) && !root->config->may_rescan)
+		{
+			/*
+			 * If we are the outer path and can never be rescanned,
+			 * we could remove the materialize path.
+			 */
+			MaterialPath *mpath = (MaterialPath *) outer.path;
+			outer.path = mpath->subpath;
+		}
+	}
+
+	/*
+	 * Move inner.
+	 */
+	if (!CdbPathLocus_IsNull(inner.move_to))
+	{
+		inner.path = cdbpath_create_motion_path(root,
+												inner.path,
+												inner_pathkeys,
+												inner.require_existing_order,
+												inner.move_to);
+		if (!inner.path)		/* fail if inner motion not feasible */
+			goto fail;
+	}
+
+	/*
+	 * Ok to join.  Give modified subpaths to caller.
+	 */
+	*p_outer_path = outer.path;
+	*p_inner_path = inner.path;
+
+	/* Tell caller where the join will be done. */
+	return cdbpathlocus_join(jointype, outer.path->locus, inner.path->locus);
+
+fail:							/* can't do this join */
+	CdbPathLocus_MakeNull(&outer.move_to);
+	return outer.move_to;
+}								/* cdbpath_motion_for_join_wrapper */
+
+
 #define standard_join_search pg_hint_plan_standard_join_search
 #define join_search_one_level pg_hint_plan_join_search_one_level
 #define make_join_rel make_join_rel_wrapper
@@ -5072,5 +6286,11 @@ void plpgsql_query_erase_callback(ResourceReleasePhase phase,
 #define make_join_rel pg_hint_plan_make_join_rel
 #define add_paths_to_joinrel add_paths_to_joinrel_wrapper
 #include "make_join_rel.c"
+
+#undef add_paths_to_joinrel
+#define add_paths_to_joinrel add_paths_to_joinrel_motion_wrapper
+#define cdbpath_motion_for_join cdbpath_motion_for_join_wrapper
+#define create_hashjoin_path create_hashjoin_path_wrapper
+#include "motion.c"
 
 #include "pg_stat_statements.c"

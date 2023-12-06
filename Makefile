@@ -24,8 +24,8 @@ ifeq (,$(filter $(shell uname),Darwin SunOS))
 LDFLAGS+=-Wl,--build-id
 endif
 
-# pg_hint_plan.c includes core.c, make_join_rel.c and pg_stat_statements.c
-pg_hint_plan.o: core.c make_join_rel.c pg_stat_statements.c
+# pg_hint_plan.c includes core.c, make_join_rel.c and pg_stat_statements.c motion.c
+pg_hint_plan.o: core.c make_join_rel.c pg_stat_statements.c motion.c
 
 OBJS = pg_hint_plan.o
 
