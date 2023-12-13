@@ -646,6 +646,16 @@ try_partial_hashjoin_path(PlannerInfo *root,
 						  JoinType orig_jointype,
 						  JoinPathExtraData *extra,
 						  bool parallel_hash);
+static void
+try_partial_nestloop_path(PlannerInfo *root,
+						  RelOptInfo *joinrel,
+						  Path *outer_path,
+						  Path *inner_path,
+						  List *pathkeys,
+						  JoinType jointype,
+						  JoinType orig_jointype,
+						  JoinPathExtraData *extra);
+
 static bool
 cdbpath_eclass_constant_is_hashable(EquivalenceClass *ec, Oid hashOpFamily);
 static bool
@@ -718,6 +728,19 @@ consider_parallel_nestloop(PlannerInfo *root,
 						   JoinPathExtraData *extra);
 static bool
 expr_param_walker(Expr *expr, Bitmapset** param_ids);
+
+static inline bool
+allow_star_schema_join(PlannerInfo *root,
+					   Relids outerrelids,
+					   Relids inner_paramrels);
+
+static void
+consider_parallel_nestloop(PlannerInfo *root,
+						   RelOptInfo *joinrel,
+						   RelOptInfo *outerrel,
+						   RelOptInfo *innerrel,
+						   JoinType jointype,
+						   JoinPathExtraData *extra);
 
 /* GUC variables */
 static bool	pg_hint_plan_enable_hint = true;
