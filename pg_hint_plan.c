@@ -121,6 +121,9 @@ PG_MODULE_MAGIC;
 #define HINT_SET				"Set"
 #define HINT_ROWS				"Rows"
 
+#define HINT_BROADCASTMOTION    "BroadcastMotion"
+#define HINT_REDISTRIBUTEMOTION "RedistributeMotion"
+
 #define HINT_ARRAY_DEFAULT_INITSIZE 8
 
 #define hint_ereport(str, detail) hint_parse_ereport(str, detail)
@@ -151,10 +154,17 @@ enum
 	ENABLE_HASHJOIN = 0x04
 } JOIN_TYPE_BITS;
 
+enum
+{
+	ENABLE_BROADCASTMOTION = 0x01,
+	ENABLE_REDISTRIBUTEMOTION = 0x02
+}
+
 #define ENABLE_ALL_SCAN (ENABLE_SEQSCAN | ENABLE_INDEXSCAN | \
 						 ENABLE_BITMAPSCAN | ENABLE_TIDSCAN | \
 						 ENABLE_INDEXONLYSCAN)
 #define ENABLE_ALL_JOIN (ENABLE_NESTLOOP | ENABLE_MERGEJOIN | ENABLE_HASHJOIN)
+#define ENABLE_ALL_MOTION (ENABLE_BROADCASTMOTION | ENABLE_REDISTRIBUTEMOTION)
 #define DISABLE_ALL_SCAN 0
 #define DISABLE_ALL_JOIN 0
 
@@ -189,6 +199,9 @@ typedef enum HintKeyword
 
 	HINT_KEYWORD_DISPATCH,
 
+	HINT_KEYWORD_BORADCASTMOTION,
+	HINT_KEYWORD_REDISTRIBUTEMOTION,
+
 	HINT_KEYWORD_UNRECOGNIZED
 } HintKeyword;
 
@@ -222,7 +235,8 @@ typedef enum HintType
 	HINT_TYPE_LEADING,
 	HINT_TYPE_SET,
 	HINT_TYPE_ROWS,
-	HINT_TYPE_PARALLEL
+	HINT_TYPE_PARALLEL,
+	HINT_TYPE_MOTION,
 } HintType;
 
 typedef enum HintTypeBitmap
@@ -237,7 +251,8 @@ static const char *HintTypeName[] = {
 	"leading",
 	"set",
 	"rows",
-	"parallel"
+	"parallel",
+	"motion",
 };
 
 /* hint status */
@@ -313,6 +328,14 @@ typedef struct JoinMethodHint
 	Relids			joinrelids;
 	Relids			inner_joinrelids;
 } JoinMethodHint;
+
+/* motion method hints */
+typedef struct MotionHint
+{
+	Hint			base;
+	char		   *relname;
+	unsigned char	enforce_mask;
+} MotionHint;
 
 /* join order hints */
 typedef struct OuterInnerRels
@@ -414,6 +437,7 @@ struct HintState
 	GucContext		context;			/* which GUC parameters can we set? */
 	RowsHint	  **rows_hints;			/* parsed Rows hints */
 	ParallelHint  **parallel_hints;		/* parsed Parallel hints */
+	MotionHint    **motion_hints;		/* parsed Motion hints */
 };
 
 /*
@@ -506,6 +530,15 @@ static Hint *DispatchHintCreate(const char *hint_str, const char *keyword,
 								  HintKeyword hint_keyword);
 static void DispatchHintDelete(DispatchHint *hint);
 static const char *DispatchHintParse(DispatchHint *hint, HintState *hstate,
+									   Query *parse, const char *str);
+
+/* Motion method hint callbacks */
+static Hint *MotionHintCreate(const char *hint_str, const char *keyword,
+								  HintKeyword hint_keyword);
+static void MotionHintDelete(MotionHint *hint);
+static void MotionHintDesc(MotionHint *hint, StringInfo buf, bool nolf);
+static int MotionHintCmp(const MotionHint *a, const MotionHint *b);
+static const char *MotionHintParse(MotionHint *hint, HintState *hstate,
 									   Query *parse, const char *str);
 
 static void quote_value(StringInfo buf, const char *value);
@@ -838,6 +871,8 @@ static const HintParser parsers[] = {
 	{HINT_SET, SetHintCreate, HINT_KEYWORD_SET},
 	{HINT_ROWS, RowsHintCreate, HINT_KEYWORD_ROWS},
 	{HINT_PARALLEL, ParallelHintCreate, HINT_KEYWORD_PARALLEL},
+	{HINT_BROADCASTMOTION, MotionHintCreate, HINT_KEYWORD_BORADCASTMOTION},
+	{HINT_REDISTRIBUTEMOTION, MotionHintCreate, HINT_KEYWORD_REDISTRIBUTEMOTION},
 
 	{HINT_DISPATCH, DispatchHintCreate, HINT_KEYWORD_DISPATCH},
 
@@ -1240,6 +1275,42 @@ DispatchHintDelete(DispatchHint *hint)
 	pfree(hint);
 }
 
+static Hint *
+MotionHintCreate(const char *hint_str, const char *keyword,
+					 HintKeyword hint_keyword)
+{
+	MotionHint *hint;
+
+	hint = palloc(sizeof(MotionHint));
+	hint->base.hint_str = hint_str;
+	hint->base.keyword = keyword;
+	hint->base.hint_keyword = hint_keyword;
+	hint->base.type = HINT_TYPE_MOTION;
+	hint->base.state = HINT_STATE_NOTUSED;
+	hint->base.delete_func = (HintDeleteFunction) MotionHintDelete;
+	hint->base.desc_func = (HintDescFunction) MotionHintDesc;
+	hint->base.cmp_func = (HintCmpFunction) MotionHintCmp;
+	hint->base.parse_func = (HintParseFunction) MotionHintParse;
+	hint->relname = NULL;
+	hint->indexnames = NIL;
+	hint->regexp = false;
+	hint->enforce_mask = 0;
+
+	return (Hint *) hint;
+}
+
+static void
+MotionHintDelete(MotionHint *hint)
+{
+	if (!hint)
+		return;
+
+	if (hint->relname)
+		pfree(hint->relname);
+	list_free_deep(hint->indexnames);
+	pfree(hint);
+}
+
 static HintState *
 HintStateCreate(void)
 {
@@ -1271,6 +1342,7 @@ HintStateCreate(void)
 	hstate->set_hints = NULL;
 	hstate->rows_hints = NULL;
 	hstate->parallel_hints = NULL;
+	hstate->motion_hints = NULL;
 
 	return hstate;
 }
@@ -1485,6 +1557,21 @@ ParallelHintDesc(ParallelHint *hint, StringInfo buf, bool nolf)
 		appendStringInfoChar(buf, '\n');
 }
 
+static void
+MotionHintDesc(MotionHint *hint, StringInfo buf, bool nolf)
+{
+	ListCell   *l;
+
+	appendStringInfo(buf, "%s(", hint->base.keyword);
+	if (hint->relname != NULL)
+	{
+		quote_value(buf, hint->relname);
+	}
+	appendStringInfoString(buf, ")");
+	if (!nolf)
+		appendStringInfoChar(buf, '\n');
+}
+
 /*
  * Append string which represents all hints in a given state to buf, with
  * preceding title with them.
@@ -1638,6 +1725,12 @@ RowsHintCmp(const RowsHint *a, const RowsHint *b)
 
 static int
 ParallelHintCmp(const ParallelHint *a, const ParallelHint *b)
+{
+	return RelnameCmp(&a->relname, &b->relname);
+}
+
+static int
+MotionHintCmp(const MotionHint *a, const MotionHint *b)
 {
 	return RelnameCmp(&a->relname, &b->relname);
 }
@@ -2411,6 +2504,8 @@ create_hintstate(Query *parse, const char *hints)
 		hstate->num_hints[HINT_TYPE_SET]);
 	hstate->parallel_hints = (ParallelHint **) (hstate->rows_hints +
 		hstate->num_hints[HINT_TYPE_ROWS]);
+	hstate->motion_hints = (MotionHint **) (hstate->parallel_hints +
+		hstate->num_hints[HINT_TYPE_PARALLEL]);
 
 	return hstate;
 }
@@ -2883,6 +2978,53 @@ DispatchHintParse(DispatchHint *hint, HintState *hstate, Query *parse,
 	}
 
 	direct_dispatch_hint = words;
+	return str;
+}
+
+/*
+ * Parse inside of parentheses of motion hints.
+ */
+static const char *
+MotionHintParse(MotionHint *hint, HintState *hstate, Query *parse,
+					const char *str)
+{
+	const char	   *keyword = hint->base.keyword;
+	HintKeyword		hint_keyword = hint->base.hint_keyword;
+	List		   *name_list = NIL;
+	int				length;
+
+	if ((str = parse_parentheses(str, &name_list, hint_keyword)) == NULL)
+		return NULL;
+
+	/* Parse relation name and index name(s) if given hint accepts. */
+	length = list_length(name_list);
+
+	/* at least twp parameters required */
+	if (length != 1)
+	{
+		hint_ereport(str,
+					 ("%s hint requires a relation.",  hint->base.keyword));
+		hint->base.state = HINT_STATE_ERROR;
+		return str;
+	}
+
+	hint->relname = linitial(name_list);
+
+	/* Set a bit for specified hint. */
+	switch (hint_keyword)
+	{	
+		case HINT_BROADCASTMOTION:
+			hint->enforce_mask = ENABLE_BROADCAST;
+			break;
+		case HINT_REDISTRIBUTEMOTION:
+			hint->enforce_mask = ENABLE_REDISTRIBUTE;
+			break;
+		default:
+			hint_ereport(str, ("Unrecognized hint keyword \"%s\".", keyword));
+			return NULL;
+			break;
+	}
+
 	return str;
 }
 
