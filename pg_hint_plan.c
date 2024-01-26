@@ -158,7 +158,7 @@ enum
 {
 	ENABLE_BROADCASTMOTION = 0x01,
 	ENABLE_REDISTRIBUTEMOTION = 0x02
-}
+} MOTION_TYPE_BITS;
 
 #define ENABLE_ALL_SCAN (ENABLE_SEQSCAN | ENABLE_INDEXSCAN | \
 						 ENABLE_BITMAPSCAN | ENABLE_TIDSCAN | \
@@ -236,7 +236,7 @@ typedef enum HintType
 	HINT_TYPE_SET,
 	HINT_TYPE_ROWS,
 	HINT_TYPE_PARALLEL,
-	HINT_TYPE_MOTION,
+	HINT_TYPE_MOTION
 } HintType;
 
 typedef enum HintTypeBitmap
@@ -252,7 +252,7 @@ static const char *HintTypeName[] = {
 	"set",
 	"rows",
 	"parallel",
-	"motion",
+	"motion"
 };
 
 /* hint status */
@@ -1292,8 +1292,8 @@ MotionHintCreate(const char *hint_str, const char *keyword,
 	hint->base.cmp_func = (HintCmpFunction) MotionHintCmp;
 	hint->base.parse_func = (HintParseFunction) MotionHintParse;
 	hint->relname = NULL;
-	hint->indexnames = NIL;
-	hint->regexp = false;
+	//hint->indexnames = NIL;
+	//hint->regexp = false;
 	hint->enforce_mask = 0;
 
 	return (Hint *) hint;
@@ -1307,7 +1307,7 @@ MotionHintDelete(MotionHint *hint)
 
 	if (hint->relname)
 		pfree(hint->relname);
-	list_free_deep(hint->indexnames);
+	//list_free_deep(hint->indexnames);
 	pfree(hint);
 }
 
@@ -3012,12 +3012,12 @@ MotionHintParse(MotionHint *hint, HintState *hstate, Query *parse,
 
 	/* Set a bit for specified hint. */
 	switch (hint_keyword)
-	{	
-		case HINT_BROADCASTMOTION:
-			hint->enforce_mask = ENABLE_BROADCAST;
+	{
+		case HINT_KEYWORD_BORADCASTMOTION:
+			hint->enforce_mask = ENABLE_BROADCASTMOTION;
 			break;
-		case HINT_REDISTRIBUTEMOTION:
-			hint->enforce_mask = ENABLE_REDISTRIBUTE;
+		case HINT_KEYWORD_REDISTRIBUTEMOTION:
+			hint->enforce_mask = ENABLE_REDISTRIBUTEMOTION;
 			break;
 		default:
 			hint_ereport(str, ("Unrecognized hint keyword \"%s\".", keyword));
