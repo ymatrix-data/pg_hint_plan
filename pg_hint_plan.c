@@ -1010,6 +1010,11 @@ _PG_fini(void)
 	*var_ptr = NULL;
 }
 
+static void set_ok_to_replicate(bool ok_to_replicate, CdbpathMfjRel rel)
+{
+	rel.ok_to_replicate = ok_to_replicate;
+}
+
 /*
  * create and delete functions the hint object
  */
