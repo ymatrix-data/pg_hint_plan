@@ -227,7 +227,7 @@ typedef const char *(*HintParseFunction) (Hint *hint, HintState *hstate,
 										  Query *parse, const char *str);
 
 /* hint types */
-#define NUM_HINT_TYPE	6
+#define NUM_HINT_TYPE	7
 typedef enum HintType
 {
 	HINT_TYPE_SCAN_METHOD,
@@ -585,6 +585,46 @@ static int set_config_int32_option(const char *name, int32 value,
 static int set_config_double_option(const char *name, double value,
 									GucContext context);
 
+
+static MotionHint *
+find_motion_hint(PlannerInfo *root, Index relid);
+
+bool enable_boradcast_on_rel(PlannerInfo *root, RelOptInfo *rel);
+
+Path *
+pg_hint_plan_create_mergejoin_path(PlannerInfo *root,
+					  RelOptInfo *joinrel,
+					  JoinType jointype,
+					  JoinType orig_jointype,		/* CDB */
+					  JoinCostWorkspace *workspace,
+					  JoinPathExtraData *extra,
+					  Path *outer_path,
+					  Path *inner_path,
+					  List *restrict_clauses,
+					  List *pathkeys,
+					  Relids required_outer,
+					  List *mergeclauses,
+					  List *redistribution_clauses,	/* CDB */
+					  List *outersortkeys,
+					  List *innersortkeys);
+
+Path *
+pg_hint_plan_create_nestloop_path(PlannerInfo *root,
+					 RelOptInfo *joinrel,
+					 JoinType jointype,
+					 JoinType orig_jointype,		/* CDB */
+					 JoinCostWorkspace *workspace,
+					 JoinPathExtraData *extra,
+					 Path *outer_path,
+					 Path *inner_path,
+					 List *restrict_clauses,
+					 List *redistribution_clauses,	/* CDB */
+					 List *pathkeys,
+					 Relids required_outer);
+
+static bool
+motion_unmaterial(Path *path, void *context);
+
 /* Motion functions*/
 static void hash_inner_and_outer(PlannerInfo *root,
 					 RelOptInfo *joinrel,
@@ -782,7 +822,7 @@ static int	pg_hint_plan_parse_message_level = INFO;
 static int	pg_hint_plan_debug_message_level = LOG;
 /* Default is off, to keep backward compatibility. */
 static bool	pg_hint_plan_enable_hint_table = false;
-static bool pg_hint_plan_enable_broadcast_motion = true;
+//static bool pg_hint_plan_enable_broadcast_motion = true; // delete it, 只在 cdbpath_motion_for_join_wrapper 这个函数中使用
 
 static int plpgsql_recurse_level = 0;		/* PLpgSQL recursion level            */
 static int recurse_level = 0;		/* recursion level incl. direct SPI calls */
@@ -956,7 +996,8 @@ _PG_init(void)
 							 NULL,
 							 NULL);
 
-	DefineCustomBoolVariable("pg_hint_plan.enable_broadcast_motion",
+	/*
+	DefineCustomBoolVariable("pg_hint_plan.enable_broadcast_motion", // delete it
 							 "Enable broadcast motion to effect plan",
 							 NULL,
 							 &pg_hint_plan_enable_broadcast_motion,
@@ -966,6 +1007,7 @@ _PG_init(void)
 							 NULL,
 							 NULL,
 							 NULL);
+	*/
 
 	/* Install hooks. */
 	prev_post_parse_hook = post_parse_hook;
@@ -3257,6 +3299,33 @@ setup_scan_method_enforcement(ScanMethodHint *scanhint, HintState *state)
 }
 
 static void
+set_motion_config_options(unsigned char enforce_mask, GucContext context)
+{
+	unsigned char	mask;
+
+	if (enforce_mask == ENABLE_BROADCASTMOTION ||
+		enforce_mask == ENABLE_REDISTRIBUTEMOTION)
+		mask = enforce_mask;
+	else
+		mask = ENABLE_ALL_MOTION;
+
+	SET_CONFIG_OPTION("enable_broadcast_motion", ENABLE_BROADCASTMOTION);
+	//SET_CONFIG_OPTION("enable_redistribute_motion", ENABLE_REDISTRIBUTEMOTION);
+}
+
+static void
+set_motion_config_options_for_rel(PlannerInfo *root, RelOptInfo *rel)
+{
+	if (rel->reloptkind != RELOPT_BASEREL)
+		return;
+
+	MotionHint *hint = NULL;
+    hint = find_motion_hint(root, rel->relid);
+	if (hint)
+		set_motion_config_options(hint->enforce_mask, current_hint_state->context);
+}
+
+static void
 set_join_config_options(unsigned char enforce_mask, GucContext context)
 {
 	unsigned char	mask;
@@ -3866,6 +3935,88 @@ find_parallel_hint(PlannerInfo *root, Index relid)
 	for (i = 0; i < current_hint_state->num_hints[HINT_TYPE_PARALLEL]; i++)
 	{
 		ParallelHint *hint = current_hint_state->parallel_hints[i];
+
+		/* We ignore disabled hints. */
+		if (!hint_state_enabled(hint))
+			continue;
+
+		if (!alias_hint &&
+			RelnameCmp(&rte->eref->aliasname, &hint->relname) == 0)
+			alias_hint = hint;
+
+		/* check the real name for appendrel children */
+		if (!real_name_hint &&
+			rel && rel->reloptkind == RELOPT_OTHER_MEMBER_REL)
+		{
+			char *realname = get_rel_name(rte->relid);
+
+			if (realname && RelnameCmp(&realname, &hint->relname) == 0)
+				real_name_hint = hint;
+		}
+
+		/* No more match expected, break  */
+		if(alias_hint && real_name_hint)
+			break;
+	}
+
+	/* real name match precedes alias match */
+	if (real_name_hint)
+		return real_name_hint;
+
+	return alias_hint;
+}
+
+/*
+ * Find motion hint to be applied to the given relation
+ *
+ */
+static MotionHint *
+find_motion_hint(PlannerInfo *root, Index relid)
+{
+	RelOptInfo	   *rel;
+	RangeTblEntry  *rte;
+	MotionHint	*real_name_hint = NULL;
+	MotionHint	*alias_hint = NULL;
+	int				i;
+
+	/* This should not be a join rel */
+	Assert(relid > 0);
+	rel = root->simple_rel_array[relid];
+
+	if (!rel)
+		return NULL;
+
+	/*
+	 * This function is called for any RelOptInfo or its inheritance parent if
+	 * any. If we are called from inheritance planner, the RelOptInfo for the
+	 * parent of target child relation is not set in the planner info.
+	 *
+	 * Otherwise we should check that the reloptinfo is base relation or
+	 * inheritance children.
+	 */
+	if (rel &&
+		rel->reloptkind != RELOPT_BASEREL &&
+		rel->reloptkind != RELOPT_OTHER_MEMBER_REL)
+		return NULL;
+
+	/*
+	 * This is baserel or appendrel children. We can refer to RangeTblEntry.
+	 */
+	rte = root->simple_rte_array[relid];
+	Assert(rte);
+
+	/* We don't hint on other than relation and foreign tables */
+	if (rte->rtekind != RTE_RELATION ||
+		rte->relkind == RELKIND_FOREIGN_TABLE)
+		return NULL;
+
+	/* Find scan method hint, which matches given names, from the list. */
+	for (i = 0; i < current_hint_state->num_hints[HINT_TYPE_MOTION]; i++)
+	{
+		MotionHint *hint = current_hint_state->motion_hints[i];
+
+		if (!hint)
+			continue;
 
 		/* We ignore disabled hints. */
 		if (!hint_state_enabled(hint))
@@ -5905,14 +6056,15 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 			if (root->upd_del_replicated_table > 0)
 			{
 #ifdef MATRIXDB_VERSION
+				;
 				if ((CdbPathLocus_NumSegments(outer.locus) > numcommon) &&
 					bms_is_member(root->upd_del_replicated_table,
-								  outer.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+								  outer.path->parent->relids) && enable_boradcast_on_rel(root, outer.path->parent))
 #else /* MATRIXDB_VERSION */
 				if ((CdbPathLocus_NumSegments(outer.locus) >
 					 CdbPathLocus_NumSegments(inner.locus)) &&
 					bms_is_member(root->upd_del_replicated_table,
-								  outer.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+								  outer.path->parent->relids) && enable_boradcast_on_rel(root, outer.path->parent))
 #endif /* MATRIXDB_VERSION */
 				{
 #ifdef MATRIXDB_VERSION
@@ -5951,12 +6103,12 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 #ifdef MATRIXDB_VERSION
 				else if ((CdbPathLocus_NumSegments(inner.locus) > numcommon) &&
 						 bms_is_member(root->upd_del_replicated_table,
-									   inner.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+									   inner.path->parent->relids) && enable_boradcast_on_rel(root, inner.path->parent))
 #else /* MATRIXDB_VERSION */
 				else if ((CdbPathLocus_NumSegments(outer.locus) <
 						  CdbPathLocus_NumSegments(inner.locus)) &&
 						 bms_is_member(root->upd_del_replicated_table,
-									   inner.path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+									   inner.path->parent->relids) && enable_boradcast_on_rel(root, inner.path->parent))
 #endif /* MATRIXDB_VERSION */
 				{
 #ifdef MATRIXDB_VERSION
@@ -5999,7 +6151,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 #ifdef MATRIXDB_VERSION
 				/* The statement is not update a replicated table. */
 				if (numcommon == 0)
-				{
+				{  // 加上 redistribute 的判断
 					/*
 					 * No common segments, bring both sides to a same single QE.
 					 * Or we can redistribute each side on their join keys respectively,
@@ -6062,7 +6214,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 			 */
 			if (root->upd_del_replicated_table > 0 &&
 				bms_is_member(root->upd_del_replicated_table,
-							  segGeneral->path->parent->relids) && pg_hint_plan_enable_broadcast_motion)
+							  segGeneral->path->parent->relids) && enable_boradcast_on_rel(root, segGeneral->path->parent))
 			{
 				/*
 				 * For UPDATE on a replicated table, we have to do it
@@ -6086,7 +6238,14 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 #endif /* MATRIXDB_VERSION */
 			}
 			else if (CdbPathLocus_IsBottleneck(other->locus))
-			{
+			{ // 加上 redistribute 的判断
+				/*
+				 * If other's locus is singleQE or entry, make SegmentGeneral
+				 * to other's locus
+				 */
+				if (CdbPathLocus_IsSingleQE(other->locus) ||
+					CdbPathLocus_IsEntry(other->locus))
+				{
 #ifdef MATRIXDB_VERSION
 				/* Bring the SegmentGeneral locus to the singleton one */
 				segGeneral->move_to = other->locus;
@@ -6113,7 +6272,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 				{
 					if (!try_redistribute(root, segGeneral,
 										  other, redistribution_clauses))
-					{
+					{ // 加上 redistribute 的判断
 						/*
 						 * FIXME: do we need to test movable?
 						 */
@@ -6163,7 +6322,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 					{
 						if (!try_redistribute(root, segGeneral,
 											  other, redistribution_clauses))
-						{
+						{ // 加上 redistribute 的判断
 #ifdef MATRIXDB_VERSION
 							/*
 							 * FIXME: do we need to test movable?
@@ -6266,7 +6425,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 #ifdef MATRIXDB_VERSION
 		else if (single->ok_to_replicate &&
 				 (single->bytes * cdbpath_parallel_workers(other->path) <
-				  single->bytes + other->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  single->bytes + other->bytes) && enable_boradcast_on_rel(root, single->path->parent))
 			CdbPathLocus_MakeReplicated(&single->move_to,
 										CdbPathLocus_NumSegments(other->locus),
 										other->locus.contentids,
@@ -6274,7 +6433,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 #else /* MATRIXDB_VERSION */
 		else if (single->ok_to_replicate &&
 				 (single->bytes * CdbPathLocus_NumSegments(other->locus) <
-				  single->bytes + other->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  single->bytes + other->bytes) && enable_boradcast_on_rel(root, single->path->parent))
 			CdbPathLocus_MakeReplicated(&single->move_to,
 										CdbPathLocus_NumSegments(other->locus));
 #endif /* MATRIXDB_VERSION */
@@ -6305,7 +6464,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (single->ok_to_replicate &&
 				 (other_immovable ||
 				  single->bytes < other->bytes ||
-				  other->has_wts) && pg_hint_plan_enable_broadcast_motion)
+				  other->has_wts) && enable_boradcast_on_rel(root, single->path->parent))
 #ifdef MATRIXDB_VERSION
 			CdbPathLocus_MakeReplicated(&single->move_to,
 										CdbPathLocus_NumSegments(other->locus),
@@ -6396,7 +6555,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!small_rel->require_existing_order &&
 				 small_rel->ok_to_replicate &&
 				 (small_rel->bytes * cdbpath_parallel_workers(large_rel->path) <
-				  large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  large_rel->bytes) && enable_boradcast_on_rel(root, small_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&small_rel->move_to,
 										CdbPathLocus_NumSegments(large_rel->locus),
 										large_rel->locus.contentids,
@@ -6405,7 +6564,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!small_rel->require_existing_order &&
 				 small_rel->ok_to_replicate &&
 				 (small_rel->bytes * CdbPathLocus_NumSegments(large_rel->locus) <
-				  large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  large_rel->bytes) && enable_boradcast_on_rel(root, small_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&small_rel->move_to,
 										CdbPathLocus_NumSegments(large_rel->locus));
 #endif /* MATRIXDB_VERSION */
@@ -6418,7 +6577,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!large_rel->require_existing_order &&
 				 large_rel->ok_to_replicate &&
 				 (large_rel->bytes * cdbpath_parallel_workers(small_rel->path) <
-				  small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  small_rel->bytes) && enable_boradcast_on_rel(root, large_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&large_rel->move_to,
 										CdbPathLocus_NumSegments(small_rel->locus),
 										small_rel->locus.contentids,
@@ -6427,7 +6586,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!large_rel->require_existing_order &&
 				 large_rel->ok_to_replicate &&
 				 (large_rel->bytes * CdbPathLocus_NumSegments(small_rel->locus) <
-				  small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  small_rel->bytes) && enable_boradcast_on_rel(root, large_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&large_rel->move_to,
 										CdbPathLocus_NumSegments(small_rel->locus));
 #endif /* MATRIXDB_VERSION */
@@ -6453,7 +6612,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!small_rel->require_existing_order &&
 				 small_rel->ok_to_replicate &&
 				 (small_rel->bytes * cdbpath_parallel_workers(large_rel->path) <
-				  small_rel->bytes + large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  small_rel->bytes + large_rel->bytes) && enable_boradcast_on_rel(root, small_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&small_rel->move_to,
 										CdbPathLocus_NumSegments(large_rel->locus),
 										large_rel->locus.contentids,
@@ -6462,7 +6621,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!small_rel->require_existing_order &&
 				 small_rel->ok_to_replicate &&
 				 (small_rel->bytes * CdbPathLocus_NumSegments(large_rel->locus) <
-				  small_rel->bytes + large_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  small_rel->bytes + large_rel->bytes) && enable_boradcast_on_rel(root, small_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&small_rel->move_to,
 										CdbPathLocus_NumSegments(large_rel->locus));
 #endif /* MATRIXDB_VERSION */
@@ -6472,7 +6631,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!large_rel->require_existing_order &&
 				 large_rel->ok_to_replicate &&
 				 (large_rel->bytes * cdbpath_parallel_workers(small_rel->path) <
-				  large_rel->bytes + small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  large_rel->bytes + small_rel->bytes) && enable_boradcast_on_rel(root, large_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&large_rel->move_to,
 										CdbPathLocus_NumSegments(small_rel->locus),
 										small_rel->locus.contentids,
@@ -6481,7 +6640,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		else if (!large_rel->require_existing_order &&
 				 large_rel->ok_to_replicate &&
 				 (large_rel->bytes * CdbPathLocus_NumSegments(small_rel->locus) <
-				  large_rel->bytes + small_rel->bytes) && pg_hint_plan_enable_broadcast_motion)
+				  large_rel->bytes + small_rel->bytes) && enable_boradcast_on_rel(root, large_rel->path->parent))
 			CdbPathLocus_MakeReplicated(&large_rel->move_to,
 										CdbPathLocus_NumSegments(small_rel->locus));
 #endif /* MATRIXDB_VERSION */
@@ -6530,7 +6689,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		 * seg dbs per host.
 		 */
 		else if (!small_rel->require_existing_order &&
-				 small_rel->ok_to_replicate && pg_hint_plan_enable_broadcast_motion)
+				 small_rel->ok_to_replicate && enable_boradcast_on_rel(root, small_rel->path->parent))
 #ifdef MATRIXDB_VERSION
 			CdbPathLocus_MakeReplicated(&small_rel->move_to,
 										CdbPathLocus_NumSegments(large_rel->locus),
@@ -6541,7 +6700,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 										CdbPathLocus_NumSegments(large_rel->locus));
 #endif /* MATRIXDB_VERSION */
 		else if (!large_rel->require_existing_order &&
-				 large_rel->ok_to_replicate && pg_hint_plan_enable_broadcast_motion)
+				 large_rel->ok_to_replicate && enable_boradcast_on_rel(root, large_rel->path->parent))
 #ifdef MATRIXDB_VERSION
 			CdbPathLocus_MakeReplicated(&large_rel->move_to,
 										CdbPathLocus_NumSegments(small_rel->locus),
@@ -6566,12 +6725,22 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 	 * Move outer.
 	 */
 	if (!CdbPathLocus_IsNull(outer.move_to))
-	{
+	{   
+		// set guc enable_broadcast_motion before call cdbpath_create_motion_path, reset it after call
+	    int				save_nestlevel;
+	    save_nestlevel = NewGUCNestLevel();
+	    set_motion_config_options_for_rel(root, outer.path->parent);
 		outer.path = cdbpath_create_motion_path(root,
 												outer.path,
 												outer_pathkeys,
 												outer.require_existing_order,
 												outer.move_to);
+		
+		/*
+		 * Restore the GUC variables we set above.
+		 */
+		AtEOXact_GUC(true, save_nestlevel);
+		
 		if (!outer.path)		/* fail if outer motion not feasible */
 			goto fail;
 
@@ -6590,12 +6759,22 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 	 * Move inner.
 	 */
 	if (!CdbPathLocus_IsNull(inner.move_to))
-	{
+	{   
+		// set guc enable_broadcast_motion before call cdbpath_create_motion_path, reset it after call
+	    int				save_nestlevel;
+	    save_nestlevel = NewGUCNestLevel();
+	    set_motion_config_options_for_rel(root, inner.path->parent);
 		inner.path = cdbpath_create_motion_path(root,
 												inner.path,
 												inner_pathkeys,
 												inner.require_existing_order,
 												inner.move_to);
+		
+		/*
+		 * Restore the GUC variables we set above.
+		 */
+		AtEOXact_GUC(true, save_nestlevel);
+		
 		if (!inner.path)		/* fail if inner motion not feasible */
 			goto fail;
 	}
@@ -6614,6 +6793,27 @@ fail:							/* can't do this join */
 	return outer.move_to;
 }								/* cdbpath_motion_for_join_wrapper */
 
+bool
+enable_boradcast_on_rel(PlannerInfo *root, RelOptInfo *rel)
+{
+	if (rel->reloptkind != RELOPT_BASEREL)
+		return enable_broadcast_motion;
+
+	MotionHint *motion_hint;
+	motion_hint = find_motion_hint(root, rel->relid);
+
+	if (motion_hint != NULL)
+	{
+		if (motion_hint->enforce_mask & ENABLE_BROADCASTMOTION)
+			return true;
+		else
+			return false;
+	}
+	else
+	{
+		return enable_broadcast_motion;
+	}
+}
 
 #define standard_join_search pg_hint_plan_standard_join_search
 #define join_search_one_level pg_hint_plan_join_search_one_level
@@ -6631,4 +6831,6 @@ fail:							/* can't do this join */
 #define add_paths_to_joinrel add_paths_to_joinrel_motion_wrapper
 #define cdbpath_motion_for_join cdbpath_motion_for_join_wrapper
 #define create_hashjoin_path pg_hint_plan_create_hashjoin_path
+#define create_mergejoin_path pg_hint_plan_create_mergejoin_path
+#define create_nestloop_path pg_hint_plan_create_nestloop_path
 #include "motion.c"

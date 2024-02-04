@@ -23,7 +23,7 @@
  * with sjinfo->jointype == JOIN_SEMI indicates that.
  */
 void
-add_paths_to_joinrel(PlannerInfo *root,
+add_paths_to_joinrel(PlannerInfo *root,   // 这个函数和原函数的区别？
 					 RelOptInfo *joinrel,
 					 RelOptInfo *outerrel,
 					 RelOptInfo *innerrel,
@@ -285,7 +285,7 @@ hash_inner_and_outer(PlannerInfo *root,
 					 RelOptInfo *outerrel,
 					 RelOptInfo *innerrel,
 					 JoinType jointype,
-					 JoinPathExtraData *extra)
+					 JoinPathExtraData *extra) // 在 add_paths_to_joinrel 里调用
 {
 	JoinType	save_jointype = jointype;
 	bool		isouterjoin = IS_OUTER_JOIN(jointype);
@@ -614,7 +614,7 @@ try_hashjoin_path(PlannerInfo *root,
 				  List *hashclauses,
 				  JoinType jointype,
 				  JoinType orig_jointype,
-				  JoinPathExtraData *extra)
+				  JoinPathExtraData *extra) // 在 hash_inner_and_outer 里调用
 {
 	Relids		required_outer;
 	JoinCostWorkspace workspace;
@@ -686,7 +686,7 @@ try_hashjoin_path(PlannerInfo *root,
  * 'required_outer' is the set of required outer rels
  * 'hashclauses' are the RestrictInfo nodes to use as hash clauses
  *		(this should be a subset of the restrict_clauses list)
- */
+ */ // 在 try_hashjoin_path 和 try_partial_hashjoin_path 里调用
 Path *
 create_hashjoin_path(PlannerInfo *root,
 					 RelOptInfo *joinrel,
@@ -3167,4 +3167,468 @@ expr_param_walker(Expr *expr, Bitmapset** param_ids)
 	}
 
 	return expression_tree_walker(expr, expr_param_walker, param_ids);
+}
+
+
+/*
+ * create_mergejoin_path
+ *	  Creates a pathnode corresponding to a mergejoin join between
+ *	  two relations
+ *
+ * 'joinrel' is the join relation
+ * 'jointype' is the type of join required
+ * 'workspace' is the result from initial_cost_mergejoin
+ * 'extra' contains various information about the join
+ * 'outer_path' is the outer path
+ * 'inner_path' is the inner path
+ * 'restrict_clauses' are the RestrictInfo nodes to apply at the join
+ * 'pathkeys' are the path keys of the new join path
+ * 'required_outer' is the set of required outer rels
+ * 'mergeclauses' are the RestrictInfo nodes to use as merge clauses
+ *		(this should be a subset of the restrict_clauses list)
+ * 'allmergeclauses' are the RestrictInfo nodes that are of the form
+ *      required of merge clauses (equijoin between outer and inner rel).
+ *      Consists of the ones to be used for merging ('mergeclauses') plus
+ *      any others in 'restrict_clauses' that are to be applied after the
+ *      merge.  We use them for motion planning.  (CDB)
+
+ * 'outersortkeys' are the sort varkeys for the outer relation
+ *      or NIL to use existing ordering
+ * 'innersortkeys' are the sort varkeys for the inner relation
+ *      or NIL to use existing ordering
+ */
+Path *
+create_mergejoin_path(PlannerInfo *root,
+					  RelOptInfo *joinrel,
+					  JoinType jointype,
+					  JoinType orig_jointype,		/* CDB */
+					  JoinCostWorkspace *workspace,
+					  JoinPathExtraData *extra,
+					  Path *outer_path,
+					  Path *inner_path,
+					  List *restrict_clauses,
+					  List *pathkeys,
+					  Relids required_outer,
+					  List *mergeclauses,
+					  List *redistribution_clauses,	/* CDB */
+					  List *outersortkeys,
+					  List *innersortkeys)
+{
+	MergePath  *pathnode = makeNode(MergePath);
+	CdbPathLocus join_locus;
+	List	   *outermotionkeys;
+	List	   *innermotionkeys;
+	bool		preserve_outer_ordering;
+	bool		preserve_inner_ordering;
+	int			rowidexpr_id;
+
+	/*
+	 * GPDB_92_MERGE_FIXME: Should we keep the pathkeys_contained_in calls?
+	 */
+	/*
+	 * Do subpaths have useful ordering?
+	 */
+	if (outersortkeys == NIL)           /* must preserve existing ordering */
+		outermotionkeys = outer_path->pathkeys;
+	else if (pathkeys_contained_in(outersortkeys, outer_path->pathkeys))
+		outermotionkeys = outersortkeys;/* lucky coincidence, already ordered */
+	else                                /* existing order useless; must sort */
+		outermotionkeys = NIL;
+
+	if (innersortkeys == NIL)
+		innermotionkeys = inner_path->pathkeys;
+	else if (pathkeys_contained_in(innersortkeys, inner_path->pathkeys))
+		innermotionkeys = innersortkeys;
+	else
+		innermotionkeys = NIL;
+
+	/*
+	 * Add motion nodes above subpaths and decide where to join.
+	 *
+	 * If we're explicitly sorting one or both sides of the join, don't choose
+	 * a Motion that would break that ordering again. But as a special case,
+	 * if there are no merge clauses, then there is no join order that would need
+	 * preserving. That case can occur with a query like "a FULL JOIN b ON true"
+	 */
+	if (mergeclauses)
+	{
+		preserve_outer_ordering = (outersortkeys == NIL);
+		preserve_inner_ordering = (innersortkeys == NIL);
+	}
+	else
+		preserve_outer_ordering = preserve_inner_ordering = false;
+
+	preserve_outer_ordering = preserve_outer_ordering || !bms_is_empty(PATH_REQ_OUTER(outer_path));
+	preserve_inner_ordering = preserve_inner_ordering || !bms_is_empty(PATH_REQ_OUTER(inner_path));
+
+	join_locus = cdbpath_motion_for_join(root,
+										 orig_jointype,
+										 &outer_path,       /* INOUT */
+										 &inner_path,       /* INOUT */
+										 &rowidexpr_id,
+										 redistribution_clauses,
+										 restrict_clauses,
+										 outermotionkeys,
+										 innermotionkeys,
+										 preserve_outer_ordering,
+#ifdef MATRIXDB_VERSION
+										 preserve_inner_ordering,
+										 true,
+										 false);
+#else /* MATRIXDB_VERSION */
+										 preserve_inner_ordering);
+#endif /* MATRIXDB_VERSION */
+
+	if (CdbPathLocus_IsNull(join_locus))
+		return NULL;
+
+	/*
+	 * Sort is not needed if subpath is already well enough ordered and a
+	 * disordering motion node (with pathkeys == NIL) hasn't been added.
+	 */
+	if (outermotionkeys &&
+		outer_path->pathkeys)
+		outersortkeys = NIL;
+	if (innermotionkeys &&
+		inner_path->pathkeys)
+		innersortkeys = NIL;
+
+#ifdef MATRIXDB_VERSION
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+		bool		has_open_wtscan;
+
+		has_open_wtscan = path_contains_same_slice_wts(inner_path);
+		has_open_wtscan |= path_contains_same_slice_wts(outer_path);
+
+		/*
+		 * In MergeJoin rescan, it needs both side node rescan. Holding the all data
+		 * in current slice is not efficient.
+		 */
+		if (has_open_wtscan)
+		{
+			if (!outer_path->rescannable)
+				outer_path = (Path *)create_material_path(root, outer_path->parent, outer_path);
+
+			if (!inner_path->rescannable)
+				inner_path = (Path *)create_material_path(root, inner_path->parent, inner_path);
+		}
+	}
+#endif
+
+	pathnode->jpath.path.pathtype = T_MergeJoin;
+	pathnode->jpath.path.parent = joinrel;
+	pathnode->jpath.path.pathtarget = joinrel->reltarget;
+	pathnode->jpath.path.param_info =
+		get_joinrel_parampathinfo(root,
+								  joinrel,
+								  outer_path,
+								  inner_path,
+								  extra->sjinfo,
+								  required_outer,
+								  &restrict_clauses);
+	pathnode->jpath.path.parallel_aware = false;
+	pathnode->jpath.path.parallel_safe = joinrel->consider_parallel &&
+		outer_path->parallel_safe && inner_path->parallel_safe;
+	/* This is a foolish way to estimate parallel_workers, but for now... */
+#ifdef MATRIXDB_VERSION
+	/*
+	 * In Matrixdb, let's keep it the same with the join_locus after
+	 * the motions are decorated
+	 */
+	pathnode->jpath.path.parallel_workers = join_locus.parallel_workers;
+#else
+	pathnode->jpath.path.parallel_workers = outer_path->parallel_workers;
+#endif /* MATRIXDB_VERSION */
+	pathnode->jpath.path.pathkeys = pathkeys;
+
+	pathnode->jpath.path.locus = join_locus;
+
+	pathnode->jpath.path.motionHazard = outer_path->motionHazard || inner_path->motionHazard;
+	pathnode->jpath.path.rescannable = outer_path->rescannable && inner_path->rescannable;
+	pathnode->jpath.path.sameslice_relids = bms_union(inner_path->sameslice_relids, outer_path->sameslice_relids);
+
+	pathnode->jpath.jointype = jointype;
+	pathnode->jpath.inner_unique = extra->inner_unique;
+	pathnode->jpath.outerjoinpath = outer_path;
+	pathnode->jpath.innerjoinpath = inner_path;
+	pathnode->jpath.joinrestrictinfo = restrict_clauses;
+	pathnode->path_mergeclauses = mergeclauses;
+	pathnode->outersortkeys = outersortkeys;
+	pathnode->innersortkeys = innersortkeys;
+	/* pathnode->skip_mark_restore will be set by final_cost_mergejoin */
+	/* pathnode->materialize_inner will be set by final_cost_mergejoin */
+
+	/*
+	 * inner_path & outer_path are possibly modified above. Let's recalculate
+	 * the initial cost.
+	 */
+	initial_cost_mergejoin(root, workspace, jointype, mergeclauses,
+						   outer_path, inner_path,
+						   outersortkeys, innersortkeys,
+						   extra);
+
+	final_cost_mergejoin(root, pathnode, workspace, extra);
+
+	if (orig_jointype == JOIN_DEDUP_SEMI ||
+		orig_jointype == JOIN_DEDUP_SEMI_REVERSE)
+	{
+		return (Path *) create_unique_rowid_path(root,
+												 joinrel,
+												 (Path *) pathnode,
+												 pathnode->jpath.innerjoinpath->parent->relids,
+												 rowidexpr_id);
+	}
+
+	/*
+	 * See the comments at the end of create_nestloop_path.
+	 */
+	return turn_volatile_seggen_to_singleqe(root,
+											(Path *) pathnode,
+											(Node *) (pathnode->jpath.joinrestrictinfo));
+}
+
+/*
+ * create_nestloop_path
+ *	  Creates a pathnode corresponding to a nestloop join between two
+ *	  relations.
+ *
+ * 'joinrel' is the join relation.
+ * 'jointype' is the type of join required
+ * 'workspace' is the result from initial_cost_nestloop
+ * 'extra' contains various information about the join
+ * 'outer_path' is the outer path
+ * 'inner_path' is the inner path
+ * 'restrict_clauses' are the RestrictInfo nodes to apply at the join
+ * 'pathkeys' are the path keys of the new join path
+ * 'required_outer' is the set of required outer rels
+ *
+ * Returns the resulting path node.
+ */
+Path *
+create_nestloop_path(PlannerInfo *root,
+					 RelOptInfo *joinrel,
+					 JoinType jointype,
+					 JoinType orig_jointype,		/* CDB */
+					 JoinCostWorkspace *workspace,
+					 JoinPathExtraData *extra,
+					 Path *outer_path,
+					 Path *inner_path,
+					 List *restrict_clauses,
+					 List *redistribution_clauses,	/* CDB */
+					 List *pathkeys,
+					 Relids required_outer)
+{
+	NestPath   *pathnode;
+	CdbPathLocus join_locus;
+	Relids		outer_req_outer = PATH_REQ_OUTER(outer_path);
+	bool		outer_must_be_local = !bms_is_empty(outer_req_outer);
+	Relids		inner_req_outer = PATH_REQ_OUTER(inner_path);
+	bool		inner_must_be_local = !bms_is_empty(inner_req_outer);
+	int			rowidexpr_id;
+
+	/* Add motion nodes above subpaths and decide where to join. */
+	join_locus = cdbpath_motion_for_join(root,
+										 orig_jointype,
+										 &outer_path,       /* INOUT */
+										 &inner_path,       /* INOUT */
+										 &rowidexpr_id,		/* OUT */
+										 redistribution_clauses,
+										 restrict_clauses,
+										 pathkeys,
+										 NIL,
+										 outer_must_be_local,
+#ifdef MATRIXDB_VERSION
+										 inner_must_be_local,
+										 true,
+										 false);
+#else /* MATRIXDB_VERSION */
+										 inner_must_be_local);
+#endif /* MATRIXDB_VERSION */
+
+	if (CdbPathLocus_IsNull(join_locus))
+		return NULL;
+
+	/* Outer might not be ordered anymore after motion. */
+	if (!outer_path->pathkeys)
+		pathkeys = NIL;
+
+	/*
+	 * If this join path is parameterized by a parameter above this path, then
+	 * this path needs to be rescannable. A NestLoop is rescannable, when both
+	 * outer and inner paths rescannable, so make them both rescannable.
+	 */
+	if (!outer_path->rescannable && !bms_is_empty(required_outer))
+	{
+		MaterialPath *matouter = create_material_path(root, outer_path->parent, outer_path);
+
+		matouter->cdb_shield_child_from_rescans = true;
+
+		outer_path = (Path *) matouter;
+	}
+
+	/*
+	 * If outer has at most one row, NJ will make at most one pass over inner.
+	 * Else materialize inner rel after motion so NJ can loop over results.
+	 */
+#ifdef MATRIXDB_VERSION
+	if (inner_path->parallel_workers > 0 ||
+		(!inner_path->rescannable &&
+		(!bms_is_empty(required_outer))))
+	{
+		if (bms_overlap(inner_req_outer, outer_path->parent->relids) &&
+			motion_unmaterial(inner_path, NULL)) {
+			return NULL;
+		}
+#elif
+	if (!inner_path->rescannable && !bms_is_empty(required_outer))
+	{
+#endif /* MATRIXDB_VERSION */
+
+		/*
+		 * NLs potentially rescan the inner; if our inner path
+		 * isn't rescannable we have to add a materialize node
+		 */
+		MaterialPath *matinner = create_material_path(root, inner_path->parent, inner_path);
+
+		matinner->cdb_shield_child_from_rescans = true;
+
+		/*
+		 * If we have motion on the outer, to avoid a deadlock; we
+		 * need to set cdb_strict. In order for materialize to
+		 * fully fetch the underlying (required to avoid our
+		 * deadlock hazard) we must set cdb_strict!
+		 */
+		if (inner_path->motionHazard && outer_path->motionHazard)
+		{
+			matinner->cdb_strict = true;
+			matinner->path.motionHazard = false;
+		}
+
+		inner_path = (Path *) matinner;
+	}
+
+	/*
+	 * If the inner path is parameterized by the outer, we must drop any
+	 * restrict_clauses that are due to be moved into the inner path.  We have
+	 * to do this now, rather than postpone the work till createplan time,
+	 * because the restrict_clauses list can affect the size and cost
+	 * estimates for this path.
+	 */
+	if (bms_overlap(inner_req_outer, outer_path->parent->relids))
+	{
+		Relids		inner_and_outer = bms_union(inner_path->parent->relids,
+												inner_req_outer);
+		List	   *jclauses = NIL;
+		ListCell   *lc;
+
+		foreach(lc, restrict_clauses)
+		{
+			RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+
+			if (!join_clause_is_movable_into(rinfo,
+											 inner_path->parent->relids,
+											 inner_and_outer))
+				jclauses = lappend(jclauses, rinfo);
+		}
+		restrict_clauses = jclauses;
+	}
+
+
+	pathnode = makeNode(NestPath);
+	pathnode->path.pathtype = T_NestLoop;
+	pathnode->path.parent = joinrel;
+	pathnode->path.pathtarget = joinrel->reltarget;
+	pathnode->path.param_info =
+		get_joinrel_parampathinfo(root,
+								  joinrel,
+								  outer_path,
+								  inner_path,
+								  extra->sjinfo,
+								  required_outer,
+								  &restrict_clauses);
+	pathnode->path.parallel_aware = false;
+	pathnode->path.parallel_safe = joinrel->consider_parallel &&
+		outer_path->parallel_safe && inner_path->parallel_safe;
+	/* This is a foolish way to estimate parallel_workers, but for now... */
+#ifdef MATRIXDB_VERSION
+	/*
+	 * In Matrixdb, let's keep it the same with the join_locus after
+	 * the motions are decorated
+	 */
+	pathnode->path.parallel_workers = join_locus.parallel_workers;
+#else
+	pathnode->path.parallel_workers = outer_path->parallel_workers;
+#endif /* MATRIXDB_VERSION */
+	pathnode->path.pathkeys = pathkeys;
+	pathnode->jointype = jointype;
+	pathnode->inner_unique = extra->inner_unique;
+	pathnode->outerjoinpath = outer_path;
+	pathnode->innerjoinpath = inner_path;
+	pathnode->joinrestrictinfo = restrict_clauses;
+
+	pathnode->path.locus = join_locus;
+	pathnode->path.motionHazard = outer_path->motionHazard || inner_path->motionHazard;
+
+	/* we're only as rescannable as our child plans */
+	pathnode->path.rescannable = outer_path->rescannable && inner_path->rescannable;
+
+	pathnode->path.sameslice_relids = bms_union(inner_path->sameslice_relids, outer_path->sameslice_relids);
+
+	/*
+	 * inner_path & outer_path are possibly modified above. Let's recalculate
+	 * the initial cost.
+	 */
+	initial_cost_nestloop(root, workspace, jointype,
+						  outer_path, inner_path,
+						  extra);
+
+	final_cost_nestloop(root, pathnode, workspace, extra);
+
+	if (orig_jointype == JOIN_DEDUP_SEMI ||
+		orig_jointype == JOIN_DEDUP_SEMI_REVERSE)
+	{
+		return (Path *) create_unique_rowid_path(root,
+												 joinrel,
+												 (Path *) pathnode,
+												 pathnode->innerjoinpath->parent->relids,
+												 rowidexpr_id);
+	}
+
+	/*
+	 * Greenplum specific behavior:
+	 * If we find the join locus is general or segmentgeneral,
+	 * we should check the joinqual, if it contains volatile functions
+	 * we have to turn the join path to singleQE.
+	 *
+	 * NB: we do not add this logic in the above create_unique_rowid_path
+	 * code block, the reason is:
+	 *   create_unique_rowid_path is a technique to implement semi join
+	 *   using normal join, it can only happens for sublink query:
+	 *   1. if the sublink query contains volatile target list or havingQual
+	 *      it cannot be pulled up in pull_up_subquery, so it will be a
+	 *      subselect and be handled in the function set_subquery_pathlist
+	 *   2. if the sublink query contains volatile functions in joinqual
+	 *      or where clause, it will be handled in set_rel_pathlist and
+	 *      here.
+	 */
+	return turn_volatile_seggen_to_singleqe(root,
+											(Path *) pathnode,
+											(Node *) (pathnode->joinrestrictinfo));
+}
+
+static bool
+motion_unmaterial(Path *path, void *context)
+{
+	if (path == NULL)
+		return false;
+
+	if (IsA(path, MaterialPath) &&
+		IsA(((MaterialPath *)path)->subpath, CdbMotionPath))
+		return false;
+
+	if (IsA(path, CdbMotionPath))
+		return true;
+
+	return path_tree_walker(path, motion_unmaterial, context);
 }

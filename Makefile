@@ -9,6 +9,10 @@ MODULES = pg_hint_plan
 EXTENSION = pg_hint_plan
 DATA = pg_hint_plan--*.sql
 
+TESTS = $(wildcard ./sql/*.sql)
+REGRESS = $(patsubst ./sql/%.sql,%,$(TESTS))
+REGRESS_OPTS = --port=56591 --user=wangxiang
+
 ifdef USE_PGXS
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
@@ -23,6 +27,10 @@ endif
 ifeq (,$(filter $(shell uname),Darwin SunOS))
 LDFLAGS+=-Wl,--build-id
 endif
+
+# 
+test_test:
+	echo $(REGRESS)
 
 # pg_hint_plan.c includes core.c, make_join_rel.c and pg_stat_statements.c motion.c
 pg_hint_plan.o: core.c make_join_rel.c pg_stat_statements.c motion.c
