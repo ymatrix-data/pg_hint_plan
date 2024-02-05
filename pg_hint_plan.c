@@ -121,8 +121,8 @@ PG_MODULE_MAGIC;
 #define HINT_SET				"Set"
 #define HINT_ROWS				"Rows"
 
-#define HINT_BROADCASTMOTION    "BroadcastMotion"
-#define HINT_REDISTRIBUTEMOTION "RedistributeMotion"
+#define HINT_DISABLE_BROADCASTMOTION    "DisableBroadcast"
+#define HINT_DISABLE_REDISTRIBUTEMOTION "DisableRedistribute"
 
 #define HINT_ARRAY_DEFAULT_INITSIZE 8
 
@@ -199,8 +199,8 @@ typedef enum HintKeyword
 
 	HINT_KEYWORD_DISPATCH,
 
-	HINT_KEYWORD_BORADCASTMOTION,
-	HINT_KEYWORD_REDISTRIBUTEMOTION,
+	HINT_KEYWORD_DISABLEBORADCASTMOTION,
+	HINT_KEYWORD_DISABLE_REDISTRIBUTEMOTION,
 
 	HINT_KEYWORD_UNRECOGNIZED
 } HintKeyword;
@@ -591,6 +591,8 @@ find_motion_hint(PlannerInfo *root, Index relid);
 
 bool enable_boradcast_on_rel(PlannerInfo *root, RelOptInfo *rel);
 
+bool enable_redistribute_on_rel(PlannerInfo *root, RelOptInfo *rel);
+
 Path *
 pg_hint_plan_create_mergejoin_path(PlannerInfo *root,
 					  RelOptInfo *joinrel,
@@ -823,6 +825,7 @@ static int	pg_hint_plan_debug_message_level = LOG;
 /* Default is off, to keep backward compatibility. */
 static bool	pg_hint_plan_enable_hint_table = false;
 //static bool pg_hint_plan_enable_broadcast_motion = true; // delete it, 只在 cdbpath_motion_for_join_wrapper 这个函数中使用
+static bool pg_hint_plan_enable_redistribute_motion = true;
 
 static int plpgsql_recurse_level = 0;		/* PLpgSQL recursion level            */
 static int recurse_level = 0;		/* recursion level incl. direct SPI calls */
@@ -911,8 +914,8 @@ static const HintParser parsers[] = {
 	{HINT_SET, SetHintCreate, HINT_KEYWORD_SET},
 	{HINT_ROWS, RowsHintCreate, HINT_KEYWORD_ROWS},
 	{HINT_PARALLEL, ParallelHintCreate, HINT_KEYWORD_PARALLEL},
-	{HINT_BROADCASTMOTION, MotionHintCreate, HINT_KEYWORD_BORADCASTMOTION},
-	{HINT_REDISTRIBUTEMOTION, MotionHintCreate, HINT_KEYWORD_REDISTRIBUTEMOTION},
+	{HINT_DISABLE_BROADCASTMOTION, MotionHintCreate, HINT_KEYWORD_DISABLEBORADCASTMOTION},
+	{HINT_DISABLE_REDISTRIBUTEMOTION, MotionHintCreate, HINT_KEYWORD_DISABLE_REDISTRIBUTEMOTION},
 
 	{HINT_DISPATCH, DispatchHintCreate, HINT_KEYWORD_DISPATCH},
 
@@ -3060,11 +3063,11 @@ MotionHintParse(MotionHint *hint, HintState *hstate, Query *parse,
 	/* Set a bit for specified hint. */
 	switch (hint_keyword)
 	{
-		case HINT_KEYWORD_BORADCASTMOTION:
-			hint->enforce_mask = ENABLE_BROADCASTMOTION;
-			break;
-		case HINT_KEYWORD_REDISTRIBUTEMOTION:
+		case HINT_KEYWORD_DISABLEBORADCASTMOTION:
 			hint->enforce_mask = ENABLE_REDISTRIBUTEMOTION;
+			break;
+		case HINT_KEYWORD_DISABLE_REDISTRIBUTEMOTION:
+			hint->enforce_mask = ENABLE_BROADCASTMOTION;
 			break;
 		default:
 			hint_ereport(str, ("Unrecognized hint keyword \"%s\".", keyword));
@@ -3310,7 +3313,7 @@ set_motion_config_options(unsigned char enforce_mask, GucContext context)
 		mask = ENABLE_ALL_MOTION;
 
 	SET_CONFIG_OPTION("enable_broadcast_motion", ENABLE_BROADCASTMOTION);
-	//SET_CONFIG_OPTION("enable_redistribute_motion", ENABLE_REDISTRIBUTEMOTION);
+	pg_hint_plan_enable_redistribute_motion = (mask & (ENABLE_REDISTRIBUTEMOTION));
 }
 
 static void
@@ -6151,7 +6154,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 #ifdef MATRIXDB_VERSION
 				/* The statement is not update a replicated table. */
 				if (numcommon == 0)
-				{  // 加上 redistribute 的判断
+				{
 					/*
 					 * No common segments, bring both sides to a same single QE.
 					 * Or we can redistribute each side on their join keys respectively,
@@ -6238,14 +6241,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 #endif /* MATRIXDB_VERSION */
 			}
 			else if (CdbPathLocus_IsBottleneck(other->locus))
-			{ // 加上 redistribute 的判断
-				/*
-				 * If other's locus is singleQE or entry, make SegmentGeneral
-				 * to other's locus
-				 */
-				if (CdbPathLocus_IsSingleQE(other->locus) ||
-					CdbPathLocus_IsEntry(other->locus))
-				{
+			{
 #ifdef MATRIXDB_VERSION
 				/* Bring the SegmentGeneral locus to the singleton one */
 				segGeneral->move_to = other->locus;
@@ -6272,7 +6268,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 				{
 					if (!try_redistribute(root, segGeneral,
 										  other, redistribution_clauses))
-					{ // 加上 redistribute 的判断
+					{
 						/*
 						 * FIXME: do we need to test movable?
 						 */
@@ -6322,7 +6318,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 					{
 						if (!try_redistribute(root, segGeneral,
 											  other, redistribution_clauses))
-						{ // 加上 redistribute 的判断
+						{
 #ifdef MATRIXDB_VERSION
 							/*
 							 * FIXME: do we need to test movable?
@@ -6407,7 +6403,8 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		}
 
 		/* Redistribute single rel if joining on other rel's partitioning key */
-		else if (cdbpath_match_preds_to_distkey(root,
+		else if (enable_redistribute_on_rel(root, single->path->parent) && 
+			cdbpath_match_preds_to_distkey(root,
 												redistribution_clauses,
 												other->path,
 												other->locus,
@@ -6445,6 +6442,8 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		 * same segments with other.
 		 */
 		else if (!other_immovable &&
+				 enable_redistribute_on_rel(root, single->path->parent) &&
+				 enable_redistribute_on_rel(root, other->path->parent) &&
 				 cdbpath_distkeys_from_preds(root,
 											 redistribution_clauses,
 											 single->path,
@@ -6533,6 +6532,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 
 		/* If joining on larger rel's partitioning key, redistribute smaller. */
 		if (!small_rel->require_existing_order &&
+			enable_redistribute_on_rel(root, small_rel->path->parent) &&
 			cdbpath_match_preds_to_distkey(root,
 										   redistribution_clauses,
 										   large_rel->path,
@@ -6593,6 +6593,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 
 		/* If joining on smaller rel's partitioning key, redistribute larger. */
 		else if (!large_rel->require_existing_order &&
+				 enable_redistribute_on_rel(root, large_rel->path->parent) &&
 				 cdbpath_match_preds_to_distkey(root,
 												redistribution_clauses,
 												small_rel->path,
@@ -6665,6 +6666,8 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 				 !small_rel->has_wts &&
 				 !large_rel->require_existing_order &&
 				 !large_rel->has_wts &&
+				 enable_redistribute_on_rel(root, small_rel->path->parent) &&
+				 enable_redistribute_on_rel(root, large_rel->path->parent) &&
 				 cdbpath_distkeys_from_preds(root,
 											 redistribution_clauses,
 											 large_rel->path,
@@ -6812,6 +6815,28 @@ enable_boradcast_on_rel(PlannerInfo *root, RelOptInfo *rel)
 	else
 	{
 		return enable_broadcast_motion;
+	}
+}
+
+bool
+enable_redistribute_on_rel(PlannerInfo *root, RelOptInfo *rel)
+{
+	if (rel->reloptkind != RELOPT_BASEREL)
+		return pg_hint_plan_enable_redistribute_motion;
+
+	MotionHint *motion_hint;
+	motion_hint = find_motion_hint(root, rel->relid);
+
+	if (motion_hint != NULL)
+	{
+		if (motion_hint->enforce_mask & ENABLE_REDISTRIBUTEMOTION)
+			return true;
+		else
+			return false;
+	}
+	else
+	{
+		return pg_hint_plan_enable_redistribute_motion;
 	}
 }
 

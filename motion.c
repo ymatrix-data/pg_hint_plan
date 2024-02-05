@@ -902,6 +902,9 @@ try_redistribute(PlannerInfo *root, CdbpathMfjRel *g, CdbpathMfjRel *o,
 	 */
 	if (g_immovable)
 		return false;
+
+	if (!enable_redistribute_on_rel(root, g->path->parent))
+		return false;
 	
 	o_immovable = (o->require_existing_order &&
 				   !o->pathkeys) || o->has_wts;
@@ -921,6 +924,9 @@ try_redistribute(PlannerInfo *root, CdbpathMfjRel *g, CdbpathMfjRel *o,
 			return true;
 		else
 		{
+			if (!enable_redistribute_on_rel(root, o->path->parent))
+				return false;
+
 			/*
 			 * both g and o can be added motion on,
 			 * we should try each possible case.
@@ -964,6 +970,10 @@ try_redistribute(PlannerInfo *root, CdbpathMfjRel *g, CdbpathMfjRel *o,
 		 * redistributed both g and o, so
 		 * both g and o should be movable.
 		 */
+
+		if (!enable_redistribute_on_rel(root, o->path->parent))
+				return false;
+
 		int			numsegments;
 
 #ifdef MATRIXDB_VERSION
