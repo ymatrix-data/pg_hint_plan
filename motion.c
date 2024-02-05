@@ -23,7 +23,7 @@
  * with sjinfo->jointype == JOIN_SEMI indicates that.
  */
 void
-add_paths_to_joinrel(PlannerInfo *root,   // 这个函数和原函数的区别？
+add_paths_to_joinrel(PlannerInfo *root,
 					 RelOptInfo *joinrel,
 					 RelOptInfo *outerrel,
 					 RelOptInfo *innerrel,
@@ -285,7 +285,7 @@ hash_inner_and_outer(PlannerInfo *root,
 					 RelOptInfo *outerrel,
 					 RelOptInfo *innerrel,
 					 JoinType jointype,
-					 JoinPathExtraData *extra) // 在 add_paths_to_joinrel 里调用
+					 JoinPathExtraData *extra)
 {
 	JoinType	save_jointype = jointype;
 	bool		isouterjoin = IS_OUTER_JOIN(jointype);
@@ -614,7 +614,7 @@ try_hashjoin_path(PlannerInfo *root,
 				  List *hashclauses,
 				  JoinType jointype,
 				  JoinType orig_jointype,
-				  JoinPathExtraData *extra) // 在 hash_inner_and_outer 里调用
+				  JoinPathExtraData *extra)
 {
 	Relids		required_outer;
 	JoinCostWorkspace workspace;
@@ -686,7 +686,7 @@ try_hashjoin_path(PlannerInfo *root,
  * 'required_outer' is the set of required outer rels
  * 'hashclauses' are the RestrictInfo nodes to use as hash clauses
  *		(this should be a subset of the restrict_clauses list)
- */ // 在 try_hashjoin_path 和 try_partial_hashjoin_path 里调用
+ */
 Path *
 create_hashjoin_path(PlannerInfo *root,
 					 RelOptInfo *joinrel,

@@ -824,7 +824,6 @@ static int	pg_hint_plan_parse_message_level = INFO;
 static int	pg_hint_plan_debug_message_level = LOG;
 /* Default is off, to keep backward compatibility. */
 static bool	pg_hint_plan_enable_hint_table = false;
-//static bool pg_hint_plan_enable_broadcast_motion = true; // delete it, 只在 cdbpath_motion_for_join_wrapper 这个函数中使用
 static bool pg_hint_plan_enable_redistribute_motion = true;
 
 static int plpgsql_recurse_level = 0;		/* PLpgSQL recursion level            */
@@ -999,18 +998,16 @@ _PG_init(void)
 							 NULL,
 							 NULL);
 
-	/*
-	DefineCustomBoolVariable("pg_hint_plan.enable_broadcast_motion", // delete it
-							 "Enable broadcast motion to effect plan",
+	DefineCustomBoolVariable("pg_hint_plan.pg_hint_plan_enable_redistribute_motion",
+							 "Enable redistribute motion to effect plan",
 							 NULL,
-							 &pg_hint_plan_enable_broadcast_motion,
+							 &pg_hint_plan_enable_redistribute_motion,
 							 true,
 							 PGC_USERSET,
 							 0,
 							 NULL,
 							 NULL,
 							 NULL);
-	*/
 
 	/* Install hooks. */
 	prev_post_parse_hook = post_parse_hook;
@@ -1342,8 +1339,6 @@ MotionHintCreate(const char *hint_str, const char *keyword,
 	hint->base.cmp_func = (HintCmpFunction) MotionHintCmp;
 	hint->base.parse_func = (HintParseFunction) MotionHintParse;
 	hint->relname = NULL;
-	//hint->indexnames = NIL;
-	//hint->regexp = false;
 	hint->enforce_mask = 0;
 
 	return (Hint *) hint;
@@ -1357,7 +1352,6 @@ MotionHintDelete(MotionHint *hint)
 
 	if (hint->relname)
 		pfree(hint->relname);
-	//list_free_deep(hint->indexnames);
 	pfree(hint);
 }
 
@@ -6729,7 +6723,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 	 */
 	if (!CdbPathLocus_IsNull(outer.move_to))
 	{   
-		// set guc enable_broadcast_motion before call cdbpath_create_motion_path, reset it after call
+	    // set guc enable_broadcast_motion before call cdbpath_create_motion_path, reset it after call
 	    int				save_nestlevel;
 	    save_nestlevel = NewGUCNestLevel();
 	    set_motion_config_options_for_rel(root, outer.path->parent);
@@ -6763,7 +6757,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 	 */
 	if (!CdbPathLocus_IsNull(inner.move_to))
 	{   
-		// set guc enable_broadcast_motion before call cdbpath_create_motion_path, reset it after call
+	    // set guc enable_broadcast_motion before call cdbpath_create_motion_path, reset it after call
 	    int				save_nestlevel;
 	    save_nestlevel = NewGUCNestLevel();
 	    set_motion_config_options_for_rel(root, inner.path->parent);
