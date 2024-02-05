@@ -6,12 +6,11 @@
 
 MODULES = pg_hint_plan
 
+REGRESS = gp-init ut-motion
+REGRESS_OPTS = --port=56591 --user=wangxiang
+
 EXTENSION = pg_hint_plan
 DATA = pg_hint_plan--*.sql
-
-TESTS = $(wildcard ./sql/*.sql)
-REGRESS = $(patsubst ./sql/%.sql,%,$(TESTS))
-REGRESS_OPTS = --port=56591 --user=wangxiang
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config
