@@ -6792,7 +6792,7 @@ bool
 enable_boradcast_on_rel(PlannerInfo *root, RelOptInfo *rel)
 {
 	if (rel->reloptkind != RELOPT_BASEREL)
-		return enable_broadcast_motion;
+		return false;
 
 	MotionHint *motion_hint;
 	motion_hint = find_motion_hint(root, rel->relid);
@@ -6814,7 +6814,7 @@ bool
 enable_redistribute_on_rel(PlannerInfo *root, RelOptInfo *rel)
 {
 	if (rel->reloptkind != RELOPT_BASEREL)
-		return pg_hint_plan_enable_redistribute_motion;
+		return false;
 
 	MotionHint *motion_hint;
 	motion_hint = find_motion_hint(root, rel->relid);
