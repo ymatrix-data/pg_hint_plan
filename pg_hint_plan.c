@@ -1052,11 +1052,6 @@ _PG_fini(void)
 	*var_ptr = NULL;
 }
 
-static void set_ok_to_replicate(bool ok_to_replicate, CdbpathMfjRel rel)
-{
-	rel.ok_to_replicate = ok_to_replicate;
-}
-
 /*
  * create and delete functions the hint object
  */
@@ -5735,9 +5730,8 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 	 */
 	/* ok_to_replicate means broadcast */
 #ifdef MATRIXDB_VERSION
-	set_ok_to_replicate(consider_replicate && !outer.has_wts, outer);
-	set_ok_to_replicate(consider_replicate, inner);
-
+	outer.ok_to_replicate = consider_replicate && !outer.has_wts;
+	inner.ok_to_replicate = consider_replicate;
 #else
 	outer.ok_to_replicate = !outer.has_wts;
 	inner.ok_to_replicate = true;
@@ -5752,14 +5746,14 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 		case JOIN_ANTI:
 		case JOIN_LEFT:
 		case JOIN_LASJ_NOTIN:
-			set_ok_to_replicate(false, outer);
+			outer.ok_to_replicate = false;
 			break;
 		case JOIN_RIGHT:
-			set_ok_to_replicate(false, inner);
+			inner.ok_to_replicate = false;
 			break;
 		case JOIN_FULL:
-			set_ok_to_replicate(false, outer);
-			set_ok_to_replicate(false, inner);
+			outer.ok_to_replicate = false;
+			inner.ok_to_replicate = false;
 			break;
 
 		case JOIN_DEDUP_SEMI:
@@ -5806,7 +5800,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 			}
 			else
 				goto fail;
-			set_ok_to_replicate(false, inner);
+			inner.ok_to_replicate = false;
 			outer.path = add_rowid_to_path(root, outer.path, p_rowidexpr_id);
 			*p_outer_path = outer.path;
 			break;
@@ -5835,7 +5829,7 @@ cdbpath_motion_for_join_wrapper(PlannerInfo *root,
 			}
 			else
 				goto fail;
-			set_ok_to_replicate(false, outer);
+			outer.ok_to_replicate = false;
 			inner.path = add_rowid_to_path(root, inner.path, p_rowidexpr_id);
 			*p_inner_path = inner.path;
 			break;
