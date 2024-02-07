@@ -3032,10 +3032,10 @@ static const char *
 MotionHintParse(MotionHint *hint, HintState *hstate, Query *parse,
 					const char *str)
 {
-	const char	   *keyword = hint->base.keyword;
-	HintKeyword		hint_keyword = hint->base.hint_keyword;
-	List		   *name_list = NIL;
-	int				length;
+	const char  *keyword = hint->base.keyword;
+	HintKeyword  hint_keyword = hint->base.hint_keyword;
+	List	    *name_list = NIL;
+	int		     length;
 
 	if ((str = parse_parentheses(str, &name_list, hint_keyword)) == NULL)
 		return NULL;
@@ -3991,9 +3991,7 @@ find_motion_hint(PlannerInfo *root, Index relid)
 	 * Otherwise we should check that the reloptinfo is base relation or
 	 * inheritance children.
 	 */
-	if (rel &&
-		rel->reloptkind != RELOPT_BASEREL &&
-		rel->reloptkind != RELOPT_OTHER_MEMBER_REL)
+	if (!IS_SIMPLE_REL(rel))
 		return NULL;
 
 	/*

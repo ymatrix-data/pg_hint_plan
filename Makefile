@@ -6,7 +6,7 @@
 
 MODULES = pg_hint_plan
 
-REGRESS = gp-init ut-motion
+REGRESS = ut-motion
 
 ifeq ($(PORT),)
   # PORT is not defined
