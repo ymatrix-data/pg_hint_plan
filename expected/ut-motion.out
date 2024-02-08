@@ -13,157 +13,177 @@ LOAD 'pg_hint_plan';
 SET pg_hint_plan.enable_hint TO on;
 SET pg_hint_plan.debug_print TO on;
 SET client_min_messages TO LOG;
-SET search_path TO public, s1, s2;
+SET search_path TO public, s1;
 ----
 ---- No. M-1 comment pattern
 ----
 -- No. M-1-1
-explain select * from t1, t2;
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=0.00..212608.50 rows=10000000 width=16)
-   ->  Nested Loop  (cost=0.00..62608.50 rows=5000000 width=16)
-         ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=0.00..23.00 rows=1000 width=8)
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Materialize  (cost=0.00..98.00 rows=5000 width=8)
-               ->  Seq Scan on t1  (cost=0.00..73.00 rows=5000 width=8)
+EXPLAIN (COSTS false) SELECT * FROM t1, t2;
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Nested Loop
+         ->  Broadcast Motion 2:2  (slice2; segments: 2)
+               ->  Seq Scan on t2
+         ->  Materialize
+               ->  Seq Scan on t1
  Optimizer: Postgres query optimizer
 (7 rows)
 
 -- No. M-1-2
 /*+ DisableBroadcast(t2) */
-explain select * from t1, t2;
+EXPLAIN (COSTS false) SELECT * FROM t1, t2;
 LOG:  pg_hint_plan:
 used hint:
-not used hint:
 DisableBroadcast(t2)
+not used hint:
 duplication hint:
 error hint:
-                                           QUERY PLAN                                            
--------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=0.00..212732.25 rows=10000000 width=16)
-   ->  Nested Loop  (cost=0.00..62732.25 rows=5000000 width=16)
-         ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=0.00..223.00 rows=10000 width=8)
-               ->  Seq Scan on t1  (cost=0.00..73.00 rows=5000 width=8)
-         ->  Materialize  (cost=0.00..10.50 rows=500 width=8)
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Nested Loop
+         ->  Broadcast Motion 2:2  (slice2; segments: 2)
+               ->  Seq Scan on t1
+         ->  Materialize
+               ->  Seq Scan on t2
  Optimizer: Postgres query optimizer
 (7 rows)
 
 -- No. M-1-3
-explain select * from t1, t2 where t1.id=t2.id;
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=30.57..82.24 rows=1000 width=16)
-   ->  Merge Join  (cost=30.57..67.24 rows=500 width=16)
+/*+ DisableBroadcast(t1) DisableBroadcast(t2) */
+EXPLAIN (COSTS false) SELECT * FROM t1, t2;
+LOG:  pg_hint_plan:
+used hint:
+DisableBroadcast(t1)
+DisableBroadcast(t2)
+not used hint:
+duplication hint:
+error hint:
+                      QUERY PLAN                      
+------------------------------------------------------
+ Nested Loop
+   ->  Gather Motion 2:1  (slice1; segments: 2)
+         ->  Seq Scan on t2
+   ->  Materialize
+         ->  Gather Motion 2:1  (slice2; segments: 2)
+               ->  Seq Scan on t1
+ Optimizer: Postgres query optimizer
+(7 rows)
+
+-- No. M-2-1
+EXPLAIN (COSTS false) SELECT * FROM t1, t2 where t1.id=t2.id;
+                 QUERY PLAN                 
+--------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Merge Join
          Merge Cond: (t1.id = t2.id)
-         ->  Index Scan using t1_pkey on t1  (cost=0.16..304.27 rows=5000 width=8)
-         ->  Sort  (cost=30.41..31.66 rows=500 width=8)
+         ->  Index Scan using t1_pkey on t1
+         ->  Sort
                Sort Key: t2.id
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
+               ->  Seq Scan on t2
  Optimizer: Postgres query optimizer
 (8 rows)
 
--- No. M-1-4
-explain select * from t1, t2 where t1.id=t2.val;
-                                              QUERY PLAN                                               
--------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=40.82..60.86 rows=1000 width=16)
-   ->  Merge Join  (cost=40.82..45.86 rows=500 width=16)
+-- No. M-3-1
+EXPLAIN (COSTS false) SELECT * FROM t1, t2 where t1.id=t2.val;
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Merge Join
          Merge Cond: (t1.id = t2.val)
-         ->  Index Scan using t1_pkey on t1  (cost=0.16..304.27 rows=5000 width=8)
-         ->  Sort  (cost=40.41..41.66 rows=500 width=8)
+         ->  Index Scan using t1_pkey on t1
+         ->  Sort
                Sort Key: t2.val
-               ->  Redistribute Motion 2:2  (slice2; segments: 2)  (cost=0.00..18.00 rows=500 width=8)
+               ->  Redistribute Motion 2:2  (slice2; segments: 2)
                      Hash Key: t2.val
-                     ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
+                     ->  Seq Scan on t2
  Optimizer: Postgres query optimizer
 (10 rows)
 
--- No. M-1-5
+-- No. M-3-2
 /*+ DisableRedistribute(t2) */
-explain select * from t1, t2 where t1.id=t2.val;
+EXPLAIN (COSTS false) SELECT * FROM t1, t2 where t1.id=t2.val;
 LOG:  pg_hint_plan:
 used hint:
-not used hint:
 DisableRedistribute(t2)
-duplication hint:
-error hint:
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
- Merge Join  (cost=73.49..88.42 rows=1000 width=16)
-   Merge Cond: (t1.id = t2.val)
-   ->  Gather Motion 2:1  (slice1; segments: 2)  (cost=0.16..454.27 rows=10000 width=8)
-         Merge Key: t1.id
-         ->  Index Scan using t1_pkey on t1  (cost=0.16..304.27 rows=5000 width=8)
-   ->  Sort  (cost=72.83..75.33 rows=1000 width=8)
-         Sort Key: t2.val
-         ->  Gather Motion 2:1  (slice2; segments: 2)  (cost=0.00..23.00 rows=1000 width=8)
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
- Optimizer: Postgres query optimizer
-(10 rows)
-
--- No. M-1-6
-explain select * from t3, t2 where t2.val=t3.id;
-                                            QUERY PLAN                                            
---------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=1.32..30.69 rows=1000 width=16)
-   ->  Hash Join  (cost=1.32..15.69 rows=500 width=16)
-         Hash Cond: (t2.val = t3.id)
-         ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=1.20..1.20 rows=10 width=8)
-               ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=0.00..1.20 rows=10 width=8)
-                     ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
- Optimizer: Postgres query optimizer
-(8 rows)
-
--- No. M-1-7
-/*+  DisableBroadcast(t3) */
-explain select * from t3, t2 where t2.val=t3.id;
-LOG:  pg_hint_plan:
-used hint:
 not used hint:
-DisableBroadcast(t3)
 duplication hint:
 error hint:
-                                           QUERY PLAN                                            
--------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=1.11..40.48 rows=1000 width=16)
-   ->  Hash Join  (cost=1.11..25.48 rows=500 width=16)
-         Hash Cond: (t2.val = t3.id)
-         ->  Redistribute Motion 2:2  (slice2; segments: 2)  (cost=0.00..18.00 rows=500 width=8)
-               Hash Key: t2.val
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=1.05..1.05 rows=5 width=8)
-               ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Merge Join
+         Merge Cond: (t1.id = t2.val)
+         ->  Index Scan using t1_pkey on t1
+         ->  Sort
+               Sort Key: t2.val
+               ->  Broadcast Motion 2:2  (slice2; segments: 2)
+                     ->  Seq Scan on t2
  Optimizer: Postgres query optimizer
 (9 rows)
 
--- No. M-1-8
-/*+  DisableBroadcast(t3) DisableRedistribute(t2) */
-explain select * from t3, t2 where t2.val=t3.id;
-LOG:  pg_hint_plan:
-used hint:
-not used hint:
-DisableRedistribute(t2)
-DisableBroadcast(t3)
-duplication hint:
-error hint:
-                                          QUERY PLAN                                           
------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=1.11..46.85 rows=1000 width=16)
-   ->  Hash Join  (cost=1.11..31.85 rows=500 width=16)
+-- No. M-4-1
+EXPLAIN (COSTS false) SELECT * FROM t3, t2 where t2.val=t3.id;
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
          Hash Cond: (t2.val = t3.id)
-         ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=0.00..23.00 rows=1000 width=8)
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=1.05..1.05 rows=5 width=8)
-               ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
+         ->  Seq Scan on t2
+         ->  Hash
+               ->  Broadcast Motion 2:2  (slice2; segments: 2)
+                     ->  Seq Scan on t3
  Optimizer: Postgres query optimizer
 (8 rows)
 
--- No. M-1-9
+-- No. M-4-2
+/*+  DisableBroadcast(t3) */
+EXPLAIN (COSTS false) SELECT * FROM t3, t2 where t2.val=t3.id;
+LOG:  pg_hint_plan:
+used hint:
+DisableBroadcast(t3)
+not used hint:
+duplication hint:
+error hint:
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
+         Hash Cond: (t2.val = t3.id)
+         ->  Redistribute Motion 2:2  (slice2; segments: 2)
+               Hash Key: t2.val
+               ->  Seq Scan on t2
+         ->  Hash
+               ->  Seq Scan on t3
+ Optimizer: Postgres query optimizer
+(9 rows)
+
+-- No. M-4-3
+/*+  DisableBroadcast(t3) DisableRedistribute(t2) */
+EXPLAIN (COSTS false) SELECT * FROM t3, t2 where t2.val=t3.id;
+LOG:  pg_hint_plan:
+used hint:
+DisableRedistribute(t2)
+DisableBroadcast(t3)
+not used hint:
+duplication hint:
+error hint:
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
+         Hash Cond: (t2.val = t3.id)
+         ->  Broadcast Motion 2:2  (slice2; segments: 2)
+               ->  Seq Scan on t2
+         ->  Hash
+               ->  Seq Scan on t3
+ Optimizer: Postgres query optimizer
+(8 rows)
+
+-- No. M-4-4
 /*+  DisableBroadcast(t2) DisableRedistribute(t2) */
-explain select * from t3, t2 where t2.val=t3.id;
+EXPLAIN (COSTS false) SELECT * FROM t3, t2 where t2.val=t3.id;
 INFO:  pg_hint_plan: hint syntax error at or near "DisableBroadcast(t2) DisableRedistribute(t2) "
 DETAIL:  Conflict motion hint.
 LOG:  pg_hint_plan:
@@ -173,159 +193,195 @@ DisableRedistribute(t2)
 duplication hint:
 DisableBroadcast(t2)
 error hint:
-                                         QUERY PLAN                                         
---------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=14.25..36.10 rows=1000 width=16)
-   ->  Hash Join  (cost=14.25..21.10 rows=500 width=16)
-         Hash Cond: (t3.id = t2.val)
-         ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=0.00..1.20 rows=10 width=8)
-               ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
-         ->  Hash  (cost=8.00..8.00 rows=500 width=8)
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
+         Hash Cond: (t2.val = t3.id)
+         ->  Seq Scan on t2
+         ->  Hash
+               ->  Broadcast Motion 2:2  (slice2; segments: 2)
+                     ->  Seq Scan on t3
  Optimizer: Postgres query optimizer
 (8 rows)
 
--- No. M-1-10
-explain select * from (t1 join t2 on t1.id=t2.val) join t3 on t2.val=t3.id;
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=2.00..12.07 rows=10 width=24)
-   ->  Hash Join  (cost=2.00..11.92 rows=5 width=24)
+-- No. M-5-1
+EXPLAIN (COSTS false) SELECT * FROM (t1 JOIN t2 ON t1.id=t2.val) JOIN t3 ON t2.val=t3.id;
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
          Hash Cond: (t2.val = t1.id)
-         ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=1.83..1.83 rows=13 width=16)
-               ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=1.27..1.83 rows=13 width=16)
-                     ->  Merge Join  (cost=1.27..1.63 rows=7 width=16)
+         ->  Seq Scan on t2
+         ->  Hash
+               ->  Broadcast Motion 2:2  (slice2; segments: 2)
+                     ->  Merge Join
                            Merge Cond: (t1.id = t3.id)
-                           ->  Index Scan using t1_pkey on t1  (cost=0.16..304.27 rows=5000 width=8)
-                           ->  Sort  (cost=1.11..1.12 rows=5 width=8)
+                           ->  Index Scan using t1_pkey on t1
+                           ->  Sort
                                  Sort Key: t3.id
-                                 ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
+                                 ->  Seq Scan on t3
  Optimizer: Postgres query optimizer
 (13 rows)
 
--- No. M-1-11
-/* DisableBroadcast(t1)  */
-explain select * from (t1 join t2 on t1.id=t2.val) join t3 on t2.val=t3.id;
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=2.00..12.07 rows=10 width=24)
-   ->  Hash Join  (cost=2.00..11.92 rows=5 width=24)
-         Hash Cond: (t2.val = t1.id)
-         ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=1.83..1.83 rows=13 width=16)
-               ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=1.27..1.83 rows=13 width=16)
-                     ->  Merge Join  (cost=1.27..1.63 rows=7 width=16)
-                           Merge Cond: (t1.id = t3.id)
-                           ->  Index Scan using t1_pkey on t1  (cost=0.16..304.27 rows=5000 width=8)
-                           ->  Sort  (cost=1.11..1.12 rows=5 width=8)
-                                 Sort Key: t3.id
-                                 ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
- Optimizer: Postgres query optimizer
-(13 rows)
-
--- No. M-1-12
-explain select * from (t1 join t2 on t1.val=t2.val) join t3 on t2.val=t3.id;
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=98.70..330.45 rows=10000 width=24)
-   ->  Hash Join  (cost=98.70..180.45 rows=5000 width=24)
-         Hash Cond: (t2.val = t1.val)
-         ->  Broadcast Motion 2:2  (slice2; segments: 2)  (cost=0.00..23.00 rows=1000 width=8)
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=92.45..92.45 rows=500 width=16)
-               ->  Hash Join  (cost=1.32..92.45 rows=500 width=16)
-                     Hash Cond: (t1.val = t3.id)
-                     ->  Seq Scan on t1  (cost=0.00..73.00 rows=5000 width=8)
-                     ->  Hash  (cost=1.20..1.20 rows=10 width=8)
-                           ->  Broadcast Motion 2:2  (slice3; segments: 2)  (cost=0.00..1.20 rows=10 width=8)
-                                 ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
- Optimizer: Postgres query optimizer
-(13 rows)
-
--- No. M-1-13
-/*+ DisableBroadcast(t2)  */
-explain select * from (t1 join t2 on t1.val=t2.val) join t3 on t2.val=t3.id;
+-- No. M-5-2
+/*+ DisableBroadcast(t1)  */
+EXPLAIN (COSTS false) SELECT * FROM (t1 JOIN t2 ON t1.id=t2.val) JOIN t3 ON t2.val=t3.id;
 LOG:  pg_hint_plan:
 used hint:
 not used hint:
-DisableBroadcast(t2)
+DisableBroadcast(t1)
 duplication hint:
 error hint:
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=158.60..380.98 rows=10000 width=24)
-   ->  Hash Join  (cost=158.60..230.98 rows=5000 width=24)
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
+         Hash Cond: (t2.val = t1.id)
+         ->  Seq Scan on t2
+         ->  Hash
+               ->  Broadcast Motion 2:2  (slice2; segments: 2)
+                     ->  Merge Join
+                           Merge Cond: (t1.id = t3.id)
+                           ->  Index Scan using t1_pkey on t1
+                           ->  Sort
+                                 Sort Key: t3.id
+                                 ->  Seq Scan on t3
+ Optimizer: Postgres query optimizer
+(13 rows)
+
+-- No. M-6-1
+EXPLAIN (COSTS false) SELECT * FROM (t1 JOIN t2 ON t1.val=t2.val) JOIN t3 ON t2.val=t3.id;
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
          Hash Cond: (t2.val = t1.val)
-         ->  Redistribute Motion 2:2  (slice2; segments: 2)  (cost=0.00..18.00 rows=500 width=8)
-               Hash Key: t2.val
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=152.35..152.35 rows=500 width=16)
-               ->  Redistribute Motion 2:2  (slice3; segments: 2)  (cost=135.50..152.35 rows=500 width=16)
-                     Hash Key: t1.val
-                     ->  Hash Join  (cost=135.50..142.35 rows=500 width=16)
-                           Hash Cond: (t3.id = t1.val)
-                           ->  Broadcast Motion 2:2  (slice4; segments: 2)  (cost=0.00..1.20 rows=10 width=8)
-                                 ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
-                           ->  Hash  (cost=73.00..73.00 rows=5000 width=8)
-                                 ->  Seq Scan on t1  (cost=0.00..73.00 rows=5000 width=8)
+         ->  Broadcast Motion 2:2  (slice2; segments: 2)
+               ->  Seq Scan on t2
+         ->  Hash
+               ->  Hash Join
+                     Hash Cond: (t1.val = t3.id)
+                     ->  Seq Scan on t1
+                     ->  Hash
+                           ->  Broadcast Motion 2:2  (slice3; segments: 2)
+                                 ->  Seq Scan on t3
+ Optimizer: Postgres query optimizer
+(13 rows)
+
+-- No. M-6-2
+/*+ DisableBroadcast(t2)  */
+EXPLAIN (COSTS false) SELECT * FROM (t1 JOIN t2 ON t1.val=t2.val) JOIN t3 ON t2.val=t3.id;
+LOG:  pg_hint_plan:
+used hint:
+DisableBroadcast(t2)
+not used hint:
+duplication hint:
+error hint:
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
+         Hash Cond: (t1.val = t2.val)
+         ->  Redistribute Motion 2:2  (slice2; segments: 2)
+               Hash Key: t1.val
+               ->  Hash Join
+                     Hash Cond: (t1.val = t3.id)
+                     ->  Seq Scan on t1
+                     ->  Hash
+                           ->  Broadcast Motion 2:2  (slice3; segments: 2)
+                                 ->  Seq Scan on t3
+         ->  Hash
+               ->  Redistribute Motion 2:2  (slice4; segments: 2)
+                     Hash Key: t2.val
+                     ->  Seq Scan on t2
  Optimizer: Postgres query optimizer
 (16 rows)
 
--- No. M-1-14
-/*+ DisableBroadcast(t2) DisableRedistribute(t3) */ explain select * from (t1 join t2 on t1.val=t2.val) join t3 on t2.val=t3.id;
+-- No. M-6-3
+/*+ DisableBroadcast(t2) DisableRedistribute(t3) */
+EXPLAIN (COSTS false) SELECT * FROM (t1 JOIN t2 ON t1.val=t2.val) JOIN t3 ON t2.val=t3.id;
 LOG:  pg_hint_plan:
 used hint:
-not used hint:
 DisableBroadcast(t2)
 DisableRedistribute(t3)
+not used hint:
 duplication hint:
 error hint:
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=158.60..380.98 rows=10000 width=24)
-   ->  Hash Join  (cost=158.60..230.98 rows=5000 width=24)
-         Hash Cond: (t2.val = t1.val)
-         ->  Redistribute Motion 2:2  (slice2; segments: 2)  (cost=0.00..18.00 rows=500 width=8)
-               Hash Key: t2.val
-               ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
-         ->  Hash  (cost=152.35..152.35 rows=500 width=16)
-               ->  Redistribute Motion 2:2  (slice3; segments: 2)  (cost=135.50..152.35 rows=500 width=16)
-                     Hash Key: t1.val
-                     ->  Hash Join  (cost=135.50..142.35 rows=500 width=16)
-                           Hash Cond: (t3.id = t1.val)
-                           ->  Broadcast Motion 2:2  (slice4; segments: 2)  (cost=0.00..1.20 rows=10 width=8)
-                                 ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
-                           ->  Hash  (cost=73.00..73.00 rows=5000 width=8)
-                                 ->  Seq Scan on t1  (cost=0.00..73.00 rows=5000 width=8)
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
+         Hash Cond: (t1.val = t2.val)
+         ->  Redistribute Motion 2:2  (slice2; segments: 2)
+               Hash Key: t1.val
+               ->  Hash Join
+                     Hash Cond: (t1.val = t3.id)
+                     ->  Seq Scan on t1
+                     ->  Hash
+                           ->  Broadcast Motion 2:2  (slice3; segments: 2)
+                                 ->  Seq Scan on t3
+         ->  Hash
+               ->  Redistribute Motion 2:2  (slice4; segments: 2)
+                     Hash Key: t2.val
+                     ->  Seq Scan on t2
  Optimizer: Postgres query optimizer
 (16 rows)
 
--- No. M-1-15
-/*+ DisableBroadcast(t2) DisableBroadcast(t3) */ explain select * from (t1 join t2 on t1.val=t2.val) join t3 on t2.val=t3.id;
+-- No. M-6-4
+/*+ DisableBroadcast(t2) DisableBroadcast(t3) */
+EXPLAIN (COSTS false) SELECT * FROM (t1 JOIN t2 ON t1.val=t2.val) JOIN t3 ON t2.val=t3.id;
 LOG:  pg_hint_plan:
 used hint:
-not used hint:
 DisableBroadcast(t2)
 DisableBroadcast(t3)
+not used hint:
 duplication hint:
 error hint:
-                                               QUERY PLAN                                                
----------------------------------------------------------------------------------------------------------
- Gather Motion 2:1  (slice1; segments: 2)  (cost=25.36..420.86 rows=10000 width=24)
-   ->  Hash Join  (cost=25.36..270.86 rows=5000 width=24)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
          Hash Cond: (t1.val = t2.val)
-         ->  Hash Join  (cost=1.11..192.24 rows=500 width=16)
-               Hash Cond: (t1.val = t3.id)
-               ->  Redistribute Motion 2:2  (slice2; segments: 2)  (cost=0.00..173.00 rows=5000 width=8)
-                     Hash Key: t1.val
-                     ->  Seq Scan on t1  (cost=0.00..73.00 rows=5000 width=8)
-               ->  Hash  (cost=1.05..1.05 rows=5 width=8)
-                     ->  Seq Scan on t3  (cost=0.00..1.05 rows=5 width=8)
-         ->  Hash  (cost=18.00..18.00 rows=500 width=8)
-               ->  Redistribute Motion 2:2  (slice3; segments: 2)  (cost=0.00..18.00 rows=500 width=8)
-                     Hash Key: t2.val
-                     ->  Seq Scan on t2  (cost=0.00..8.00 rows=500 width=8)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Broadcast Motion 2:2  (slice2; segments: 2)
+                     ->  Hash Join
+                           Hash Cond: (t2.val = t3.id)
+                           ->  Redistribute Motion 2:2  (slice3; segments: 2)
+                                 Hash Key: t2.val
+                                 ->  Seq Scan on t2
+                           ->  Hash
+                                 ->  Seq Scan on t3
  Optimizer: Postgres query optimizer
-(15 rows)
+(14 rows)
+
+-- No. M-6-5
+/*+ DisableBroadcast(t2) DisableBroadcast(t3) DisableBroadcast(t4) */
+EXPLAIN (COSTS false) SELECT * FROM (t1 JOIN t2 ON t1.val=t2.val) JOIN t3 ON t2.val=t3.id;
+LOG:  pg_hint_plan:
+used hint:
+DisableBroadcast(t2)
+DisableBroadcast(t3)
+not used hint:
+DisableBroadcast(t4)
+duplication hint:
+error hint:
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Gather Motion 2:1  (slice1; segments: 2)
+   ->  Hash Join
+         Hash Cond: (t1.val = t2.val)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Broadcast Motion 2:2  (slice2; segments: 2)
+                     ->  Hash Join
+                           Hash Cond: (t2.val = t3.id)
+                           ->  Redistribute Motion 2:2  (slice3; segments: 2)
+                                 Hash Key: t2.val
+                                 ->  Seq Scan on t2
+                           ->  Hash
+                                 ->  Seq Scan on t3
+ Optimizer: Postgres query optimizer
+(14 rows)
 

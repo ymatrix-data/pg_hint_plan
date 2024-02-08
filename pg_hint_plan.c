@@ -3313,7 +3313,7 @@ set_motion_config_options_for_rel(PlannerInfo *root, RelOptInfo *rel)
 
 	MotionHint *hint = NULL;
     hint = find_motion_hint(root, rel->relid);
-	if (hint)
+	if (hint != NULL)
 		set_motion_config_options(hint->enforce_mask, current_hint_state->context);
 }
 
@@ -4014,6 +4014,7 @@ find_motion_hint(PlannerInfo *root, Index relid)
 
 		if (!alias_hint &&
 			RelnameCmp(&rte->eref->aliasname, &hint->relname) == 0)
+			//hint->base.state = HINT_STATE_USED;
 			alias_hint = hint;
 
 		/* check the real name for appendrel children */
@@ -4023,6 +4024,7 @@ find_motion_hint(PlannerInfo *root, Index relid)
 			char *realname = get_rel_name(rte->relid);
 
 			if (realname && RelnameCmp(&realname, &hint->relname) == 0)
+				//hint->base.state = HINT_STATE_USED;
 				real_name_hint = hint;
 		}
 
@@ -6786,13 +6788,14 @@ bool
 enable_boradcast_on_rel(PlannerInfo *root, RelOptInfo *rel)
 {
 	if (rel->reloptkind != RELOPT_BASEREL)
-		return false;
+		return true;
 
 	MotionHint *motion_hint;
 	motion_hint = find_motion_hint(root, rel->relid);
 
 	if (motion_hint != NULL)
 	{
+		motion_hint->base.state = HINT_STATE_USED;
 		if (motion_hint->enforce_mask & ENABLE_BROADCASTMOTION)
 			return true;
 		else
@@ -6800,7 +6803,7 @@ enable_boradcast_on_rel(PlannerInfo *root, RelOptInfo *rel)
 	}
 	else
 	{
-		return enable_broadcast_motion;
+		return true;
 	}
 }
 
@@ -6808,13 +6811,14 @@ bool
 enable_redistribute_on_rel(PlannerInfo *root, RelOptInfo *rel)
 {
 	if (rel->reloptkind != RELOPT_BASEREL)
-		return false;
+		return true;
 
 	MotionHint *motion_hint;
 	motion_hint = find_motion_hint(root, rel->relid);
 
 	if (motion_hint != NULL)
 	{
+		motion_hint->base.state = HINT_STATE_USED;
 		if (motion_hint->enforce_mask & ENABLE_REDISTRIBUTEMOTION)
 			return true;
 		else
@@ -6822,7 +6826,7 @@ enable_redistribute_on_rel(PlannerInfo *root, RelOptInfo *rel)
 	}
 	else
 	{
-		return pg_hint_plan_enable_redistribute_motion;
+		return true;
 	}
 }
 
