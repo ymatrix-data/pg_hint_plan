@@ -8,33 +8,64 @@ SET search_path TO public;
 ----
 -- No. G-1-1-1
 EXPLAIN (COSTS false) UPDATE s1.r1 SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
-                           QUERY PLAN                            
------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: (t1.c1 = t4.c1)
-         ->  Nested Loop
-               Join Filter: (t1.c1 = t3.c1)
-               ->  Nested Loop
-                     Join Filter: (t1.c1 = t2.c1)
+NOTICE:  SELECT uses system-defined column "r1.ctid" without the necessary companion column "r1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (t1.c1 = t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4
-               TID Cond: (ctid = '(1,1)'::tid)
-(19 rows)
+                           Join Filter: (t1.c1 = t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (t1.c1 = t3.c1)
+                                       ->  Sort
+                                             Sort Key: t1.c1
+                                             ->  Tid Scan on t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: t3.c1
+                                             ->  Tid Scan on t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r1
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: t2.c1
+                           ->  Seq Scan on t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(30 rows)
 
 /*+
 Set(enable_tidscan off)Set(enable_nestloop off)
 */
 EXPLAIN (COSTS false) UPDATE s1.r1 SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
+NOTICE:  SELECT uses system-defined column "r1.ctid" without the necessary companion column "r1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -42,60 +73,94 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (t1.c1 = t4.c1)
-               ->  Hash Join
-                     Hash Cond: (t1.c1 = t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (t3.c1 = t1.c1)
-                           ->  Seq Scan on t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (t4.c1 = t1.c1)
+               ->  Seq Scan on t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r1
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
-(21 rows)
+                     ->  Merge Join
+                           Merge Cond: (t1.c1 = t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (t1.c1 = t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r1
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: t2.c1
+                                       ->  Seq Scan on t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: t3.c1
+                                 ->  Seq Scan on t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(25 rows)
 
 EXPLAIN (COSTS false) UPDATE s1.r1_ SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
-                           QUERY PLAN                            
------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: (b1t1.c1 = b1t4.c1)
-         ->  Nested Loop
-               Join Filter: (b1t1.c1 = b1t3.c1)
-               ->  Nested Loop
-                     Join Filter: (b1t1.c1 = b1t2.c1)
+NOTICE:  SELECT uses system-defined column "r1_.ctid" without the necessary companion column "r1_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t1.ctid" without the necessary companion column "b1t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t2.ctid" without the necessary companion column "b1t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t3.ctid" without the necessary companion column "b1t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t4.ctid" without the necessary companion column "b1t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (b1t1.c1 = b1t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r1_
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1 b1t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2 b1t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3 b1t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4 b1t4
-               TID Cond: (ctid = '(1,1)'::tid)
-(19 rows)
+                           Join Filter: (b1t1.c1 = b1t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (b1t1.c1 = b1t3.c1)
+                                       ->  Sort
+                                             Sort Key: b1t1.c1
+                                             ->  Tid Scan on t1 b1t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: b1t3.c1
+                                             ->  Tid Scan on t3 b1t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r1_
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4 b1t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: b1t2.c1
+                           ->  Seq Scan on t2 b1t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(30 rows)
 
 /*+
 Set(enable_tidscan off)Set(enable_nestloop off)
 */
 EXPLAIN (COSTS false) UPDATE s1.r1_ SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
+NOTICE:  SELECT uses system-defined column "r1_.ctid" without the necessary companion column "r1_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t1.ctid" without the necessary companion column "b1t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t2.ctid" without the necessary companion column "b1t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t3.ctid" without the necessary companion column "b1t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t4.ctid" without the necessary companion column "b1t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -103,81 +168,136 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (b1t1.c1 = b1t4.c1)
-               ->  Hash Join
-                     Hash Cond: (b1t1.c1 = b1t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (b1t3.c1 = b1t1.c1)
-                           ->  Seq Scan on t3 b1t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1 b1t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2 b1t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (b1t4.c1 = b1t1.c1)
+               ->  Seq Scan on t4 b1t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4 b1t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r1_
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
-(21 rows)
+                     ->  Merge Join
+                           Merge Cond: (b1t1.c1 = b1t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (b1t1.c1 = b1t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1 b1t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r1_
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: b1t2.c1
+                                       ->  Seq Scan on t2 b1t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: b1t3.c1
+                                 ->  Seq Scan on t3 b1t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(25 rows)
 
 -- No. G-1-1-2
 EXPLAIN (COSTS false) UPDATE s1.r2 SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
-                           QUERY PLAN                            
------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: (t1.c1 = t4.c1)
-         ->  Nested Loop
-               Join Filter: (t1.c1 = t3.c1)
-               ->  Nested Loop
-                     Join Filter: (t1.c1 = t2.c1)
+NOTICE:  SELECT uses system-defined column "r2.ctid" without the necessary companion column "r2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "r2.ctid" without the necessary companion column "r2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (t1.c1 = t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r2
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4
-               TID Cond: (ctid = '(1,1)'::tid)
+                           Join Filter: (t1.c1 = t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (t1.c1 = t3.c1)
+                                       ->  Sort
+                                             Sort Key: t1.c1
+                                             ->  Tid Scan on t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: t3.c1
+                                             ->  Tid Scan on t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r2
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: t2.c1
+                           ->  Seq Scan on t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
- Aggregate
-   ->  Nested Loop
-         Join Filter: (t1.c1 = t4.c1)
-         ->  Nested Loop
-               Join Filter: (t1.c1 = t3.c1)
-               ->  Nested Loop
-                     Join Filter: (t1.c1 = t2.c1)
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (t1.c1 = t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r2
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4
-               TID Cond: (ctid = '(1,1)'::tid)
-(39 rows)
+                           Join Filter: (t1.c1 = t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (t1.c1 = t3.c1)
+                                       ->  Sort
+                                             Sort Key: t1.c1
+                                             ->  Tid Scan on t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: t3.c1
+                                             ->  Tid Scan on t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r2
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: t2.c1
+                           ->  Seq Scan on t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(61 rows)
 
 /*+
 Set(enable_tidscan off)Set(enable_nestloop off)
 */
 EXPLAIN (COSTS false) UPDATE s1.r2 SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
+NOTICE:  SELECT uses system-defined column "r2.ctid" without the necessary companion column "r2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -185,7 +305,16 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
+NOTICE:  SELECT uses system-defined column "r2.ctid" without the necessary companion column "r2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -193,102 +322,161 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (t1.c1 = t4.c1)
-               ->  Hash Join
-                     Hash Cond: (t1.c1 = t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (t3.c1 = t1.c1)
-                           ->  Seq Scan on t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (t4.c1 = t1.c1)
+               ->  Seq Scan on t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r2
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                     ->  Merge Join
+                           Merge Cond: (t1.c1 = t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (t1.c1 = t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r2
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: t2.c1
+                                       ->  Seq Scan on t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: t3.c1
+                                 ->  Seq Scan on t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (t1.c1 = t4.c1)
-               ->  Hash Join
-                     Hash Cond: (t1.c1 = t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (t3.c1 = t1.c1)
-                           ->  Seq Scan on t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (t4.c1 = t1.c1)
+               ->  Seq Scan on t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r2
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
-(43 rows)
+                     ->  Merge Join
+                           Merge Cond: (t1.c1 = t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (t1.c1 = t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r2
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: t2.c1
+                                       ->  Seq Scan on t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: t3.c1
+                                 ->  Seq Scan on t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(51 rows)
 
 EXPLAIN (COSTS false) UPDATE s1.r2_ SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
-                           QUERY PLAN                            
------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: (b1t1.c1 = b1t4.c1)
-         ->  Nested Loop
-               Join Filter: (b1t1.c1 = b1t3.c1)
-               ->  Nested Loop
-                     Join Filter: (b1t1.c1 = b1t2.c1)
+NOTICE:  SELECT uses system-defined column "r2_.ctid" without the necessary companion column "r2_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t1.ctid" without the necessary companion column "b1t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t2.ctid" without the necessary companion column "b1t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t3.ctid" without the necessary companion column "b1t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t4.ctid" without the necessary companion column "b1t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "r2_.ctid" without the necessary companion column "r2_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t1.ctid" without the necessary companion column "b2t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t2.ctid" without the necessary companion column "b2t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t3.ctid" without the necessary companion column "b2t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t4.ctid" without the necessary companion column "b2t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (b1t1.c1 = b1t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r2_
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1 b1t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2 b1t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3 b1t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4 b1t4
-               TID Cond: (ctid = '(1,1)'::tid)
+                           Join Filter: (b1t1.c1 = b1t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (b1t1.c1 = b1t3.c1)
+                                       ->  Sort
+                                             Sort Key: b1t1.c1
+                                             ->  Tid Scan on t1 b1t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: b1t3.c1
+                                             ->  Tid Scan on t3 b1t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r2_
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4 b1t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: b1t2.c1
+                           ->  Seq Scan on t2 b1t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
- Aggregate
-   ->  Nested Loop
-         Join Filter: (b2t1.c1 = b2t4.c1)
-         ->  Nested Loop
-               Join Filter: (b2t1.c1 = b2t3.c1)
-               ->  Nested Loop
-                     Join Filter: (b2t1.c1 = b2t2.c1)
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (b2t1.c1 = b2t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r2_
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1 b2t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2 b2t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3 b2t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4 b2t4
-               TID Cond: (ctid = '(1,1)'::tid)
-(39 rows)
+                           Join Filter: (b2t1.c1 = b2t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (b2t1.c1 = b2t3.c1)
+                                       ->  Sort
+                                             Sort Key: b2t1.c1
+                                             ->  Tid Scan on t1 b2t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: b2t3.c1
+                                             ->  Tid Scan on t3 b2t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r2_
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4 b2t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: b2t2.c1
+                           ->  Seq Scan on t2 b2t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(61 rows)
 
 /*+
 Set(enable_tidscan off)Set(enable_nestloop off)
 */
 EXPLAIN (COSTS false) UPDATE s1.r2_ SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
+NOTICE:  SELECT uses system-defined column "r2_.ctid" without the necessary companion column "r2_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t1.ctid" without the necessary companion column "b1t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t2.ctid" without the necessary companion column "b1t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t3.ctid" without the necessary companion column "b1t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t4.ctid" without the necessary companion column "b1t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -296,7 +484,16 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
+NOTICE:  SELECT uses system-defined column "r2_.ctid" without the necessary companion column "r2_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t1.ctid" without the necessary companion column "b2t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t2.ctid" without the necessary companion column "b2t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t3.ctid" without the necessary companion column "b2t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t4.ctid" without the necessary companion column "b2t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -304,123 +501,203 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (b1t1.c1 = b1t4.c1)
-               ->  Hash Join
-                     Hash Cond: (b1t1.c1 = b1t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (b1t3.c1 = b1t1.c1)
-                           ->  Seq Scan on t3 b1t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1 b1t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2 b1t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (b1t4.c1 = b1t1.c1)
+               ->  Seq Scan on t4 b1t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4 b1t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r2_
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                     ->  Merge Join
+                           Merge Cond: (b1t1.c1 = b1t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (b1t1.c1 = b1t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1 b1t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r2_
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: b1t2.c1
+                                       ->  Seq Scan on t2 b1t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: b1t3.c1
+                                 ->  Seq Scan on t3 b1t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (b2t1.c1 = b2t4.c1)
-               ->  Hash Join
-                     Hash Cond: (b2t1.c1 = b2t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (b2t3.c1 = b2t1.c1)
-                           ->  Seq Scan on t3 b2t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1 b2t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2 b2t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (b2t4.c1 = b2t1.c1)
+               ->  Seq Scan on t4 b2t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4 b2t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r2_
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
-(43 rows)
+                     ->  Merge Join
+                           Merge Cond: (b2t1.c1 = b2t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (b2t1.c1 = b2t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1 b2t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r2_
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: b2t2.c1
+                                       ->  Seq Scan on t2 b2t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: b2t3.c1
+                                 ->  Seq Scan on t3 b2t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(51 rows)
 
 -- No. G-1-1-3
 EXPLAIN (COSTS false) UPDATE s1.r3 SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
-                           QUERY PLAN                            
------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: (t1.c1 = t4.c1)
-         ->  Nested Loop
-               Join Filter: (t1.c1 = t3.c1)
-               ->  Nested Loop
-                     Join Filter: (t1.c1 = t2.c1)
+NOTICE:  SELECT uses system-defined column "r3.ctid" without the necessary companion column "r3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "r3.ctid" without the necessary companion column "r3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "r3.ctid" without the necessary companion column "r3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (t1.c1 = t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r3
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4
-               TID Cond: (ctid = '(1,1)'::tid)
+                           Join Filter: (t1.c1 = t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (t1.c1 = t3.c1)
+                                       ->  Sort
+                                             Sort Key: t1.c1
+                                             ->  Tid Scan on t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: t3.c1
+                                             ->  Tid Scan on t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r3
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: t2.c1
+                           ->  Seq Scan on t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
- Aggregate
-   ->  Nested Loop
-         Join Filter: (t1.c1 = t4.c1)
-         ->  Nested Loop
-               Join Filter: (t1.c1 = t3.c1)
-               ->  Nested Loop
-                     Join Filter: (t1.c1 = t2.c1)
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (t1.c1 = t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r3
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4
-               TID Cond: (ctid = '(1,1)'::tid)
+                           Join Filter: (t1.c1 = t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (t1.c1 = t3.c1)
+                                       ->  Sort
+                                             Sort Key: t1.c1
+                                             ->  Tid Scan on t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: t3.c1
+                                             ->  Tid Scan on t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r3
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: t2.c1
+                           ->  Seq Scan on t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
- Aggregate
-   ->  Nested Loop
-         Join Filter: (t1.c1 = t4.c1)
-         ->  Nested Loop
-               Join Filter: (t1.c1 = t3.c1)
-               ->  Nested Loop
-                     Join Filter: (t1.c1 = t2.c1)
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (t1.c1 = t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r3
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4
-               TID Cond: (ctid = '(1,1)'::tid)
-(59 rows)
+                           Join Filter: (t1.c1 = t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (t1.c1 = t3.c1)
+                                       ->  Sort
+                                             Sort Key: t1.c1
+                                             ->  Tid Scan on t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: t3.c1
+                                             ->  Tid Scan on t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r3
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: t2.c1
+                           ->  Seq Scan on t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(92 rows)
 
 /*+
 Set(enable_tidscan off)Set(enable_nestloop off)
 */
 EXPLAIN (COSTS false) UPDATE s1.r3 SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
+NOTICE:  SELECT uses system-defined column "r3.ctid" without the necessary companion column "r3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -428,7 +705,16 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
+NOTICE:  SELECT uses system-defined column "r3.ctid" without the necessary companion column "r3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -436,7 +722,16 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
+NOTICE:  SELECT uses system-defined column "r3.ctid" without the necessary companion column "r3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t2.ctid" without the necessary companion column "t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t3.ctid" without the necessary companion column "t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "t4.ctid" without the necessary companion column "t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -444,144 +739,228 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (t1.c1 = t4.c1)
-               ->  Hash Join
-                     Hash Cond: (t1.c1 = t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (t3.c1 = t1.c1)
-                           ->  Seq Scan on t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (t4.c1 = t1.c1)
+               ->  Seq Scan on t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r3
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                     ->  Merge Join
+                           Merge Cond: (t1.c1 = t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (t1.c1 = t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r3
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: t2.c1
+                                       ->  Seq Scan on t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: t3.c1
+                                 ->  Seq Scan on t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (t1.c1 = t4.c1)
-               ->  Hash Join
-                     Hash Cond: (t1.c1 = t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (t3.c1 = t1.c1)
-                           ->  Seq Scan on t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (t4.c1 = t1.c1)
+               ->  Seq Scan on t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r3
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                     ->  Merge Join
+                           Merge Cond: (t1.c1 = t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (t1.c1 = t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r3
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: t2.c1
+                                       ->  Seq Scan on t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: t3.c1
+                                 ->  Seq Scan on t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (t1.c1 = t4.c1)
-               ->  Hash Join
-                     Hash Cond: (t1.c1 = t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (t3.c1 = t1.c1)
-                           ->  Seq Scan on t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (t4.c1 = t1.c1)
+               ->  Seq Scan on t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r3
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
-(65 rows)
+                     ->  Merge Join
+                           Merge Cond: (t1.c1 = t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (t1.c1 = t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r3
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: t2.c1
+                                       ->  Seq Scan on t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: t3.c1
+                                 ->  Seq Scan on t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(77 rows)
 
 EXPLAIN (COSTS false) UPDATE s1.r3_ SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
-                           QUERY PLAN                            
------------------------------------------------------------------
- Aggregate
-   ->  Nested Loop
-         Join Filter: (b1t1.c1 = b1t4.c1)
-         ->  Nested Loop
-               Join Filter: (b1t1.c1 = b1t3.c1)
-               ->  Nested Loop
-                     Join Filter: (b1t1.c1 = b1t2.c1)
+NOTICE:  SELECT uses system-defined column "r3_.ctid" without the necessary companion column "r3_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t1.ctid" without the necessary companion column "b1t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t2.ctid" without the necessary companion column "b1t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t3.ctid" without the necessary companion column "b1t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t4.ctid" without the necessary companion column "b1t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "r3_.ctid" without the necessary companion column "r3_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t1.ctid" without the necessary companion column "b2t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t2.ctid" without the necessary companion column "b2t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t3.ctid" without the necessary companion column "b2t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t4.ctid" without the necessary companion column "b2t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "r3_.ctid" without the necessary companion column "r3_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t1.ctid" without the necessary companion column "b3t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t2.ctid" without the necessary companion column "b3t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t3.ctid" without the necessary companion column "b3t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t4.ctid" without the necessary companion column "b3t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (b1t1.c1 = b1t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r3_
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1 b1t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2 b1t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3 b1t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4 b1t4
-               TID Cond: (ctid = '(1,1)'::tid)
+                           Join Filter: (b1t1.c1 = b1t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (b1t1.c1 = b1t3.c1)
+                                       ->  Sort
+                                             Sort Key: b1t1.c1
+                                             ->  Tid Scan on t1 b1t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: b1t3.c1
+                                             ->  Tid Scan on t3 b1t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r3_
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4 b1t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: b1t2.c1
+                           ->  Seq Scan on t2 b1t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
- Aggregate
-   ->  Nested Loop
-         Join Filter: (b2t1.c1 = b2t4.c1)
-         ->  Nested Loop
-               Join Filter: (b2t1.c1 = b2t3.c1)
-               ->  Nested Loop
-                     Join Filter: (b2t1.c1 = b2t2.c1)
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (b2t1.c1 = b2t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r3_
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1 b2t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2 b2t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3 b2t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4 b2t4
-               TID Cond: (ctid = '(1,1)'::tid)
+                           Join Filter: (b2t1.c1 = b2t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (b2t1.c1 = b2t3.c1)
+                                       ->  Sort
+                                             Sort Key: b2t1.c1
+                                             ->  Tid Scan on t1 b2t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: b2t3.c1
+                                             ->  Tid Scan on t3 b2t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r3_
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4 b2t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: b2t2.c1
+                           ->  Seq Scan on t2 b2t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
- Aggregate
-   ->  Nested Loop
-         Join Filter: (b3t1.c1 = b3t4.c1)
-         ->  Nested Loop
-               Join Filter: (b3t1.c1 = b3t3.c1)
-               ->  Nested Loop
-                     Join Filter: (b3t1.c1 = b3t2.c1)
+ Finalize Aggregate
+   ->  Gather Motion 1:1  (slice1; segments: 1)
+         ->  Partial Aggregate
+               ->  Merge Join
+                     Merge Cond: (b3t1.c1 = b3t2.c1)
                      ->  Nested Loop
-                           ->  Tid Scan on r3_
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                                 Filter: (c1 = 1)
-                           ->  Tid Scan on t1 b3t1
-                                 TID Cond: (ctid = '(1,1)'::tid)
-                     ->  Seq Scan on t2 b3t2
-                           Filter: (ctid = '(1,1)'::tid)
-               ->  Tid Scan on t3 b3t3
-                     TID Cond: (ctid = '(1,1)'::tid)
-         ->  Tid Scan on t4 b3t4
-               TID Cond: (ctid = '(1,1)'::tid)
-(59 rows)
+                           Join Filter: (b3t1.c1 = b3t4.c1)
+                           ->  Nested Loop
+                                 ->  Merge Join
+                                       Merge Cond: (b3t1.c1 = b3t3.c1)
+                                       ->  Sort
+                                             Sort Key: b3t1.c1
+                                             ->  Tid Scan on t1 b3t1
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                       ->  Sort
+                                             Sort Key: b3t3.c1
+                                             ->  Tid Scan on t3 b3t3
+                                                   TID Cond: (ctid = '(1,1)'::tid)
+                                 ->  Materialize
+                                       ->  Tid Scan on r3_
+                                             TID Cond: (ctid = '(1,1)'::tid)
+                                             Filter: (c1 = 1)
+                           ->  Materialize
+                                 ->  Tid Scan on t4 b3t4
+                                       TID Cond: (ctid = '(1,1)'::tid)
+                     ->  Sort
+                           Sort Key: b3t2.c1
+                           ->  Seq Scan on t2 b3t2
+                                 Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(92 rows)
 
 /*+
 Set(enable_tidscan off)Set(enable_nestloop off)
 */
 EXPLAIN (COSTS false) UPDATE s1.r3_ SET c1 = c1 WHERE c1 = 1 AND ctid = '(1,1)';
+NOTICE:  SELECT uses system-defined column "r3_.ctid" without the necessary companion column "r3_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t1.ctid" without the necessary companion column "b1t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t2.ctid" without the necessary companion column "b1t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t3.ctid" without the necessary companion column "b1t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b1t4.ctid" without the necessary companion column "b1t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -589,7 +968,16 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
+NOTICE:  SELECT uses system-defined column "r3_.ctid" without the necessary companion column "r3_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t1.ctid" without the necessary companion column "b2t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t2.ctid" without the necessary companion column "b2t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t3.ctid" without the necessary companion column "b2t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b2t4.ctid" without the necessary companion column "b2t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -597,7 +985,16 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
+NOTICE:  SELECT uses system-defined column "r3_.ctid" without the necessary companion column "r3_.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t1.ctid" without the necessary companion column "b3t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t2.ctid" without the necessary companion column "b3t2.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t3.ctid" without the necessary companion column "b3t3.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+NOTICE:  SELECT uses system-defined column "b3t4.ctid" without the necessary companion column "b3t4.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 Set(enable_nestloop off)
@@ -605,75 +1002,86 @@ Set(enable_tidscan off)
 not used hint:
 duplication hint:
 error hint:
-
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (b1t1.c1 = b1t4.c1)
-               ->  Hash Join
-                     Hash Cond: (b1t1.c1 = b1t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (b1t3.c1 = b1t1.c1)
-                           ->  Seq Scan on t3 b1t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1 b1t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2 b1t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (b1t4.c1 = b1t1.c1)
+               ->  Seq Scan on t4 b1t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4 b1t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r3_
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                     ->  Merge Join
+                           Merge Cond: (b1t1.c1 = b1t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (b1t1.c1 = b1t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1 b1t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r3_
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: b1t2.c1
+                                       ->  Seq Scan on t2 b1t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: b1t3.c1
+                                 ->  Seq Scan on t3 b1t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (b2t1.c1 = b2t4.c1)
-               ->  Hash Join
-                     Hash Cond: (b2t1.c1 = b2t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (b2t3.c1 = b2t1.c1)
-                           ->  Seq Scan on t3 b2t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1 b2t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2 b2t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (b2t4.c1 = b2t1.c1)
+               ->  Seq Scan on t4 b2t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4 b2t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r3_
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                     ->  Merge Join
+                           Merge Cond: (b2t1.c1 = b2t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (b2t1.c1 = b2t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1 b2t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r3_
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: b2t2.c1
+                                       ->  Seq Scan on t2 b2t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: b2t3.c1
+                                 ->  Seq Scan on t3 b2t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
  
  Aggregate
-   ->  Nested Loop
+   ->  Gather Motion 1:1  (slice1; segments: 1)
          ->  Hash Join
-               Hash Cond: (b3t1.c1 = b3t4.c1)
-               ->  Hash Join
-                     Hash Cond: (b3t1.c1 = b3t2.c1)
-                     ->  Hash Join
-                           Hash Cond: (b3t3.c1 = b3t1.c1)
-                           ->  Seq Scan on t3 b3t3
-                                 Filter: (ctid = '(1,1)'::tid)
-                           ->  Hash
-                                 ->  Seq Scan on t1 b3t1
-                                       Filter: (ctid = '(1,1)'::tid)
-                     ->  Hash
-                           ->  Seq Scan on t2 b3t2
-                                 Filter: (ctid = '(1,1)'::tid)
+               Hash Cond: (b3t4.c1 = b3t1.c1)
+               ->  Seq Scan on t4 b3t4
+                     Filter: (ctid = '(1,1)'::tid)
                ->  Hash
-                     ->  Seq Scan on t4 b3t4
-                           Filter: (ctid = '(1,1)'::tid)
-         ->  Seq Scan on r3_
-               Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
-(65 rows)
+                     ->  Merge Join
+                           Merge Cond: (b3t1.c1 = b3t3.c1)
+                           ->  Merge Join
+                                 Merge Cond: (b3t1.c1 = b3t2.c1)
+                                 ->  Nested Loop
+                                       ->  Index Scan using t1_i1 on t1 b3t1
+                                             Filter: (ctid = '(1,1)'::tid)
+                                       ->  Seq Scan on r3_
+                                             Filter: ((ctid = '(1,1)'::tid) AND (c1 = 1))
+                                 ->  Sort
+                                       Sort Key: b3t2.c1
+                                       ->  Seq Scan on t2 b3t2
+                                             Filter: (ctid = '(1,1)'::tid)
+                           ->  Sort
+                                 Sort Key: b3t3.c1
+                                 ->  Seq Scan on t3 b3t3
+                                       Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(77 rows)
 
 RESET client_min_messages;
 ----
@@ -733,7 +1141,7 @@ INFO:  parameter "archive_timeout" cannot be changed now
 -- No. G-2-2-4
 /*+Set(log_connections off)*/
 SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-INFO:  parameter "log_connections" cannot be set after connection start
+INFO:  parameter "log_connections" cannot be set after connection starts
  c1 | c2 | c3 | c4 
 ----+----+----+----
   1 |  1 |  1 | 1
@@ -787,7 +1195,6 @@ not used hint:
 duplication hint:
 Set(enable_indexscan on)
 error hint:
-
  c1 | c2 | c3 | c4 
 ----+----+----+----
 (0 rows)
@@ -799,6 +1206,10 @@ INFO:  pg_hint_plan: hint syntax error at or near "Set(client_min_messages DEBUG
 DETAIL:  Conflict set hint.
 INFO:  pg_hint_plan: hint syntax error at or near "Set(client_min_messages WARNING)Set(client_min_messages DEBUG2)"
 DETAIL:  Conflict set hint.
+DEBUG:  cdb_estimate_rel_size estimated 1000 tuples, 6 pages, and 0.000000 allvisfrac
+DEBUG:  cdb_estimate_rel_size estimated 1000 tuples, 5 pages, and 0.000000 allvisfrac
+DEBUG:  cdb_estimate_rel_size estimated 1000 tuples, 5 pages, and 0.000000 allvisfrac
+DEBUG:  cdb_estimate_rel_size estimated 1000 tuples, 5 pages, and 0.000000 allvisfrac
 LOG:  pg_hint_plan:
 used hint:
 Set(client_min_messages DEBUG2)
@@ -807,7 +1218,6 @@ duplication hint:
 Set(client_min_messages DEBUG5)
 Set(client_min_messages WARNING)
 error hint:
-
  c1 | c2 | c3 | c4 
 ----+----+----+----
 (0 rows)
@@ -825,7 +1235,6 @@ duplication hint:
 Set(enable_indexscan on)
 error hint:
 Set(enable_indexscan o)
-
  c1 | c2 | c3 | c4 
 ----+----+----+----
 (0 rows)
@@ -847,7 +1256,6 @@ Set(client_min_messages DEBUG5)
 Set(client_min_messages WARNING)
 error hint:
 Set(client_min_messages DEBU)
-
  c1 | c2 | c3 | c4 
 ----+----+----+----
 (0 rows)
@@ -871,7 +1279,6 @@ duplication hint:
 SeqScan(a)
 error hint:
 NestLoop(a)
-
  c1 | c2 | c3 | c4 | c1 | c2 | c3 | c4 
 ----+----+----+----+----+----+----+----
 (0 rows)

@@ -10,7 +10,7 @@ NUM_PRIMARY_MIRROR_PAIRS ?= 1
 
 ifeq ($(NUM_PRIMARY_MIRROR_PAIRS),1)
   # Execute original unit tests in single-node mode only, as Greenplum's plan merely adds an extra Gather Motion compared to PostgreSQL's plan.
-  REGRESS = init base_plan ut-init ut-A ut-T ut-fini #ut-S
+  REGRESS = init base_plan ut-init ut-A ut-T ut-G ut-fini #ut-S
 else
   REGRESS = ut-motion
 endif
