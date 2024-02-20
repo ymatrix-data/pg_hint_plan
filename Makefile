@@ -6,7 +6,21 @@
 
 MODULES = pg_hint_plan
 
-REGRESS = ut-motion
+NUM_PRIMARY_MIRROR_PAIRS ?= 1
+
+ifeq ($(NUM_PRIMARY_MIRROR_PAIRS),1)
+  # Execute original unit tests in single-node mode only, as Greenplum's plan merely adds an extra Gather Motion compared to PostgreSQL's plan.
+  REGRESS = init base_plan ut-init ut-A ut-fini
+else
+  REGRESS = ut-motion
+endif
+
+#REGRESS = ut-motion
+
+#REGRESS = init base_plan pg_hint_plan #ut-init ut-A ut-S ut-J ut-L ut-G ut-R \
+	ut-fdw ut-W ut-T ut-fini
+
+# pg_hint_plan 会卡住  ut-init 可以了
 
 ifeq ($(PORT),)
   # PORT is not defined

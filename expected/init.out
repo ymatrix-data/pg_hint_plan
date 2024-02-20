@@ -33,10 +33,11 @@ NOTICE:  merging column "id" with inherited definition
 NOTICE:  merging column "val" with inherited definition
 CREATE TABLE p2 (id int PRIMARY KEY, val text);
 CREATE INDEX p2_id_val_idx ON p2 (id, val);
-CREATE UNIQUE INDEX p2_val_idx ON p2 (val);
+CREATE INDEX p2_val_idx ON p2 (val);
 CREATE INDEX p2_ununi_id_val_idx ON p2 (val);
 CREATE INDEX p2_val_idx_1 ON p2 USING hash (val);
 CREATE INDEX p2_val_id_idx ON p2 (val, id);
+CREATE COLLATION "ja_JP" (LOCALE = 'ja_JP.UTF-8');
 CREATE INDEX p2_val_idx2 ON p2 (val COLLATE "ja_JP");
 CREATE INDEX p2_val_idx3 ON p2 (val varchar_ops);
 CREATE INDEX p2_val_idx4 ON p2 (val DESC NULLS LAST);
@@ -152,6 +153,12 @@ SELECT pg_reload_conf();
 (1 row)
 
 SET effective_cache_size TO 16384;
+set constraint_exclusion to 'partition';
+set cursor_tuple_fraction to 0.1;
+set from_collapse_limit to 8;
+set join_collapse_limit to 8;
+set enable_partitionwise_aggregate to off;
+set enable_partitionwise_join to off;
 CREATE VIEW settings AS
 SELECT name, setting, category
   FROM pg_settings
@@ -159,54 +166,130 @@ SELECT name, setting, category
     OR name = 'client_min_messages'
  ORDER BY category, name;
 SELECT * FROM settings;
-              name              |  setting  |                    category                     
---------------------------------+-----------+-------------------------------------------------
- client_min_messages            | notice    | Client Connection Defaults / Statement Behavior
- geqo                           | on        | Query Tuning / Genetic Query Optimizer
- geqo_effort                    | 5         | Query Tuning / Genetic Query Optimizer
- geqo_generations               | 0         | Query Tuning / Genetic Query Optimizer
- geqo_pool_size                 | 0         | Query Tuning / Genetic Query Optimizer
- geqo_seed                      | 0         | Query Tuning / Genetic Query Optimizer
- geqo_selection_bias            | 2         | Query Tuning / Genetic Query Optimizer
- geqo_threshold                 | 12        | Query Tuning / Genetic Query Optimizer
- constraint_exclusion           | partition | Query Tuning / Other Planner Options
- cursor_tuple_fraction          | 0.1       | Query Tuning / Other Planner Options
- default_statistics_target      | 100       | Query Tuning / Other Planner Options
- force_parallel_mode            | off       | Query Tuning / Other Planner Options
- from_collapse_limit            | 8         | Query Tuning / Other Planner Options
- jit                            | on        | Query Tuning / Other Planner Options
- join_collapse_limit            | 8         | Query Tuning / Other Planner Options
- plan_cache_mode                | auto      | Query Tuning / Other Planner Options
- cpu_index_tuple_cost           | 0.005     | Query Tuning / Planner Cost Constants
- cpu_operator_cost              | 0.0025    | Query Tuning / Planner Cost Constants
- cpu_tuple_cost                 | 0.01      | Query Tuning / Planner Cost Constants
- effective_cache_size           | 16384     | Query Tuning / Planner Cost Constants
- jit_above_cost                 | 100000    | Query Tuning / Planner Cost Constants
- jit_inline_above_cost          | 500000    | Query Tuning / Planner Cost Constants
- jit_optimize_above_cost        | 500000    | Query Tuning / Planner Cost Constants
- min_parallel_index_scan_size   | 64        | Query Tuning / Planner Cost Constants
- min_parallel_table_scan_size   | 1024      | Query Tuning / Planner Cost Constants
- parallel_setup_cost            | 1000      | Query Tuning / Planner Cost Constants
- parallel_tuple_cost            | 0.1       | Query Tuning / Planner Cost Constants
- random_page_cost               | 4         | Query Tuning / Planner Cost Constants
- seq_page_cost                  | 1         | Query Tuning / Planner Cost Constants
- enable_bitmapscan              | on        | Query Tuning / Planner Method Configuration
- enable_gathermerge             | on        | Query Tuning / Planner Method Configuration
- enable_hashagg                 | on        | Query Tuning / Planner Method Configuration
- enable_hashjoin                | on        | Query Tuning / Planner Method Configuration
- enable_indexonlyscan           | on        | Query Tuning / Planner Method Configuration
- enable_indexscan               | on        | Query Tuning / Planner Method Configuration
- enable_material                | on        | Query Tuning / Planner Method Configuration
- enable_mergejoin               | on        | Query Tuning / Planner Method Configuration
- enable_nestloop                | on        | Query Tuning / Planner Method Configuration
- enable_parallel_append         | on        | Query Tuning / Planner Method Configuration
- enable_parallel_hash           | on        | Query Tuning / Planner Method Configuration
- enable_partition_pruning       | on        | Query Tuning / Planner Method Configuration
- enable_partitionwise_aggregate | off       | Query Tuning / Planner Method Configuration
- enable_partitionwise_join      | off       | Query Tuning / Planner Method Configuration
- enable_seqscan                 | on        | Query Tuning / Planner Method Configuration
- enable_sort                    | on        | Query Tuning / Planner Method Configuration
- enable_tidscan                 | on        | Query Tuning / Planner Method Configuration
-(46 rows)
+                           name                            |   setting   |                    category                     
+-----------------------------------------------------------+-------------+-------------------------------------------------
+ client_min_messages                                       | notice      | Client Connection Defaults / Statement Behavior
+ constraint_exclusion                                      | partition   | Query Tuning / Other Planner Options
+ cursor_tuple_fraction                                     | 0.1         | Query Tuning / Other Planner Options
+ force_parallel_mode                                       | off         | Query Tuning / Other Planner Options
+ from_collapse_limit                                       | 8           | Query Tuning / Other Planner Options
+ gp_enable_fast_sri                                        | on          | Query Tuning / Other Planner Options
+ gp_enable_predicate_propagation                           | on          | Query Tuning / Other Planner Options
+ jit                                                       | on          | Query Tuning / Other Planner Options
+ join_collapse_limit                                       | 8           | Query Tuning / Other Planner Options
+ mx_pullup_agg_proj_and_qual                               | off         | Query Tuning / Other Planner Options
+ optimizer_join_order                                      | exhaustive2 | Query Tuning / Other Planner Options
+ plan_cache_mode                                           | auto        | Query Tuning / Other Planner Options
+ cpu_index_tuple_cost                                      | 0.005       | Query Tuning / Planner Cost Constants
+ cpu_operator_cost                                         | 0.0025      | Query Tuning / Planner Cost Constants
+ cpu_tuple_cost                                            | 0.01        | Query Tuning / Planner Cost Constants
+ effective_cache_size                                      | 16384       | Query Tuning / Planner Cost Constants
+ gp_appendonly_random_page_cost                            | 40          | Query Tuning / Planner Cost Constants
+ gp_compressed_random_page_cost                            | 400         | Query Tuning / Planner Cost Constants
+ gp_motion_cost_per_row                                    | 0           | Query Tuning / Planner Cost Constants
+ gp_motion_cost_startup                                    | 0           | Query Tuning / Planner Cost Constants
+ gp_segments_for_planner                                   | 0           | Query Tuning / Planner Cost Constants
+ jit_above_cost                                            | 100000      | Query Tuning / Planner Cost Constants
+ jit_inline_above_cost                                     | 500000      | Query Tuning / Planner Cost Constants
+ jit_optimize_above_cost                                   | 500000      | Query Tuning / Planner Cost Constants
+ min_parallel_index_scan_size                              | 64          | Query Tuning / Planner Cost Constants
+ min_parallel_table_scan_size                              | 1024        | Query Tuning / Planner Cost Constants
+ parallel_setup_cost                                       | 1000        | Query Tuning / Planner Cost Constants
+ parallel_tuple_cost                                       | 0.1         | Query Tuning / Planner Cost Constants
+ random_page_cost                                          | 4           | Query Tuning / Planner Cost Constants
+ seq_page_cost                                             | 1           | Query Tuning / Planner Cost Constants
+ enable_bitmapscan                                         | on          | Query Tuning / Planner Method Configuration
+ enable_gather                                             | on          | Query Tuning / Planner Method Configuration
+ enable_gathermerge                                        | on          | Query Tuning / Planner Method Configuration
+ enable_groupagg                                           | on          | Query Tuning / Planner Method Configuration
+ enable_groupingsets_hash_disk                             | off         | Query Tuning / Planner Method Configuration
+ enable_hashagg                                            | on          | Query Tuning / Planner Method Configuration
+ enable_hashagg_disk                                       | on          | Query Tuning / Planner Method Configuration
+ enable_hashjoin                                           | on          | Query Tuning / Planner Method Configuration
+ enable_indexonlyscan                                      | on          | Query Tuning / Planner Method Configuration
+ enable_indexscan                                          | on          | Query Tuning / Planner Method Configuration
+ enable_material                                           | on          | Query Tuning / Planner Method Configuration
+ enable_mergejoin                                          | on          | Query Tuning / Planner Method Configuration
+ enable_nestloop                                           | on          | Query Tuning / Planner Method Configuration
+ enable_parallel_append                                    | on          | Query Tuning / Planner Method Configuration
+ enable_parallel_hash                                      | on          | Query Tuning / Planner Method Configuration
+ enable_parallel_mode                                      | on          | Query Tuning / Planner Method Configuration
+ enable_partition_pruning                                  | on          | Query Tuning / Planner Method Configuration
+ enable_partitionwise_aggregate                            | off         | Query Tuning / Planner Method Configuration
+ enable_partitionwise_join                                 | off         | Query Tuning / Planner Method Configuration
+ enable_seqscan                                            | on          | Query Tuning / Planner Method Configuration
+ enable_sort                                               | on          | Query Tuning / Planner Method Configuration
+ enable_tidscan                                            | on          | Query Tuning / Planner Method Configuration
+ enable_unique                                             | on          | Query Tuning / Planner Method Configuration
+ gp_adjust_selectivity_for_outerjoins                      | on          | Query Tuning / Planner Method Configuration
+ gp_dynamic_partition_pruning                              | on          | Query Tuning / Planner Method Configuration
+ gp_enable_agg_distinct                                    | on          | Query Tuning / Planner Method Configuration
+ gp_enable_agg_distinct_pruning                            | on          | Query Tuning / Planner Method Configuration
+ gp_enable_direct_dispatch                                 | on          | Query Tuning / Planner Method Configuration
+ gp_enable_minmax_optimization                             | on          | Query Tuning / Planner Method Configuration
+ gp_enable_multiphase_agg                                  | on          | Query Tuning / Planner Method Configuration
+ gp_enable_preunique                                       | on          | Query Tuning / Planner Method Configuration
+ gp_enable_relsize_collection                              | off         | Query Tuning / Planner Method Configuration
+ gp_enable_sort_distinct                                   | on          | Query Tuning / Planner Method Configuration
+ gp_enable_sort_limit                                      | on          | Query Tuning / Planner Method Configuration
+ gp_statistics_pullup_from_child_partition                 | off         | Query Tuning / Planner Method Configuration
+ gp_statistics_use_fkeys                                   | off         | Query Tuning / Planner Method Configuration
+ mx_enable_runtime_filter                                  | on          | Query Tuning / Planner Method Configuration
+ mx_generic_packet_rtt                                     | 100         | Query Tuning / Planner Method Configuration
+ mx_interconnect_compress                                  | off         | Query Tuning / Planner Method Configuration
+ mx_runtime_filter_debug_mode                              | off         | Query Tuning / Planner Method Configuration
+ mx_runtime_filter_logging                                 | off         | Query Tuning / Planner Method Configuration
+ mx_runtime_join_ratio                                     | 10          | Query Tuning / Planner Method Configuration
+ mx_runtime_max_filter_per_query                           | 4           | Query Tuning / Planner Method Configuration
+ mx_runtime_max_inner_rows                                 | 2000000     | Query Tuning / Planner Method Configuration
+ mx_runtime_max_intent_level                               | 3           | Query Tuning / Planner Method Configuration
+ mx_runtime_min_outer_rows                                 | 500000      | Query Tuning / Planner Method Configuration
+ mx_runtime_scan_ratio                                     | 25          | Query Tuning / Planner Method Configuration
+ optimizer                                                 | off         | Query Tuning / Planner Method Configuration
+ optimizer_enable_assert_maxonerow                         | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_associativity                            | off         | Query Tuning / Planner Method Configuration
+ optimizer_enable_bitmapscan                               | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_broadcast_nestloop_outer_child           | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_constant_expression_evaluation           | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_ctas                                     | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_direct_dispatch                          | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_dml                                      | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_dml_constraints                          | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_dynamictablescan                         | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_gather_on_segment_for_dml                | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_groupagg                                 | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_hashagg                                  | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_hashjoin                                 | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_hashjoin_redistribute_broadcast_children | off         | Query Tuning / Planner Method Configuration
+ optimizer_enable_indexjoin                                | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_indexonlyscan                            | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_indexscan                                | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_master_only_queries                      | off         | Query Tuning / Planner Method Configuration
+ optimizer_enable_materialize                              | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_mergejoin                                | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_motion_broadcast                         | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_motion_gather                            | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_motion_redistribute                      | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_motions                                  | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_motions_masteronly_queries               | off         | Query Tuning / Planner Method Configuration
+ optimizer_enable_multiple_distinct_aggs                   | off         | Query Tuning / Planner Method Configuration
+ optimizer_enable_nljoin                                   | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_outerjoin_rewrite                        | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_outerjoin_to_unionall_rewrite            | off         | Query Tuning / Planner Method Configuration
+ optimizer_enable_partial_index                            | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_partition_propagation                    | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_partition_selection                      | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_sort                                     | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_streaming_material                       | on          | Query Tuning / Planner Method Configuration
+ optimizer_enable_tablescan                                | on          | Query Tuning / Planner Method Configuration
+ optimizer_expand_fulljoin                                 | off         | Query Tuning / Planner Method Configuration
+ optimizer_force_agg_skew_avoidance                        | on          | Query Tuning / Planner Method Configuration
+ optimizer_force_comprehensive_join_implementation         | off         | Query Tuning / Planner Method Configuration
+ optimizer_force_multistage_agg                            | off         | Query Tuning / Planner Method Configuration
+ optimizer_join_arity_for_associativity_commutativity      | 18          | Query Tuning / Planner Method Configuration
+ optimizer_join_order_threshold                            | 10          | Query Tuning / Planner Method Configuration
+ optimizer_metadata_caching                                | on          | Query Tuning / Planner Method Configuration
+ optimizer_penalize_skew                                   | on          | Query Tuning / Planner Method Configuration
+(122 rows)
 
 ANALYZE;

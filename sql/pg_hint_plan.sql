@@ -953,12 +953,15 @@ DROP EXTENSION pg_hint_plan;
 CREATE FUNCTION reset_stats_and_wait() RETURNS void AS $$
 DECLARE
   rows int;
+  retry_time int;
 BEGIN
   rows = 1;
-  while rows > 0 LOOP
+  retry_time = 0;
+  while rows > 0 AND retry_time < 10 LOOP
    PERFORM pg_stat_reset();
    PERFORM pg_sleep(0.5);
-   SELECT sum(seq_scan + idx_scan) from pg_stat_user_tables into rows;
+   SELECT COALESCE(sum(seq_scan + idx_scan), 0) FROM pg_stat_user_tables into rows;
+   retry_time = retry_time + 1;
   END LOOP;
 END;
 $$ LANGUAGE plpgsql;

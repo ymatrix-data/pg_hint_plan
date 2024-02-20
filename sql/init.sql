@@ -19,10 +19,11 @@ CREATE TABLE p1_c3_c1 (LIKE p1 INCLUDING ALL, CHECK (id > 200 AND id <= 250)) IN
 CREATE TABLE p1_c3_c2 (LIKE p1 INCLUDING ALL, CHECK (id > 250 AND id <= 300)) INHERITS(p1_c3);
 CREATE TABLE p2 (id int PRIMARY KEY, val text);
 CREATE INDEX p2_id_val_idx ON p2 (id, val);
-CREATE UNIQUE INDEX p2_val_idx ON p2 (val);
+CREATE INDEX p2_val_idx ON p2 (val);
 CREATE INDEX p2_ununi_id_val_idx ON p2 (val);
 CREATE INDEX p2_val_idx_1 ON p2 USING hash (val);
 CREATE INDEX p2_val_id_idx ON p2 (val, id);
+CREATE COLLATION "ja_JP" (LOCALE = 'ja_JP.UTF-8');
 CREATE INDEX p2_val_idx2 ON p2 (val COLLATE "ja_JP");
 CREATE INDEX p2_val_idx3 ON p2 (val varchar_ops);
 CREATE INDEX p2_val_idx4 ON p2 (val DESC NULLS LAST);
@@ -123,6 +124,14 @@ CREATE VIEW v4 AS SELECT v_2.t1_id, t_3.id FROM v2 v_2, t3 t_3 WHERE v_2.t1_id =
 ALTER SYSTEM SET effective_cache_size TO 16384;
 SELECT pg_reload_conf();
 SET effective_cache_size TO 16384;
+set constraint_exclusion to 'partition';
+set cursor_tuple_fraction to 0.1;
+set from_collapse_limit to 8;
+set join_collapse_limit to 8;
+set enable_partitionwise_aggregate to off;
+set enable_partitionwise_join to off;
+
+
 
 CREATE VIEW settings AS
 SELECT name, setting, category

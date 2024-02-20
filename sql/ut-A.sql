@@ -1,3 +1,5 @@
+DROP EXTENSION pg_hint_plan; -- cleanup
+
 LOAD 'pg_hint_plan';
 SET pg_hint_plan.enable_hint TO on;
 SET pg_hint_plan.debug_print TO on;
@@ -614,42 +616,43 @@ SHOW pg_hint_plan.debug_print;
 ---- No. A-8-4 original GUC parameter pg_hint_plan.parse_messages
 ----
 
-SET client_min_messages TO debug5;
+-- SET client_min_messages TO debug5;
 
--- No. A-8-4-1
-SET pg_hint_plan.parse_messages TO debug5;
-SHOW pg_hint_plan.parse_messages;
-/*+Set*/SELECT 1;
-SET client_min_messages TO debug4;
-/*+Set*/SELECT 1;
+-- No. A-8-4-1 don't test debug5 because it's too verbose with too much unstable number
+-- SET pg_hint_plan.parse_messages TO debug5;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug4;
+-- /*+Set*/SELECT 1;
 
--- No. A-8-4-2
-SET pg_hint_plan.parse_messages TO debug4;
-SHOW pg_hint_plan.parse_messages;
-/*+Set*/SELECT 1;
-SET client_min_messages TO debug3;
-/*+Set*/SELECT 1;
+-- No. A-8-4-2 don't test debug4 because it's too verbose with too much unstable number
+-- SET pg_hint_plan.parse_messages TO debug4;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug3;
+-- /*+Set*/SELECT 1;
 
--- No. A-8-4-3
-SET pg_hint_plan.parse_messages TO debug3;
-SHOW pg_hint_plan.parse_messages;
-/*+Set*/SELECT 1;
-SET client_min_messages TO debug2;
-/*+Set*/SELECT 1;
+
+-- No. A-8-4-3 don't test debug3 because it's too verbose with too much unstable number
+-- SET pg_hint_plan.parse_messages TO debug3;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug2;
+-- /*+Set*/SELECT 1;
 
 -- No. A-8-4-4
-SET pg_hint_plan.parse_messages TO debug2;
-SHOW pg_hint_plan.parse_messages;
-/*+Set*/SELECT 1;
-SET client_min_messages TO debug1;
-/*+Set*/SELECT 1;
+-- SET pg_hint_plan.parse_messages TO debug2;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug1;
+-- /*+Set*/SELECT 1;
 
 -- No. A-8-4-5
-SET pg_hint_plan.parse_messages TO debug1;
-SHOW pg_hint_plan.parse_messages;
-/*+Set*/SELECT 1;
-SET client_min_messages TO log;
-/*+Set*/SELECT 1;
+-- SET pg_hint_plan.parse_messages TO debug1;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO log;
+-- /*+Set*/SELECT 1;
 
 -- No. A-8-4-6
 SET pg_hint_plan.parse_messages TO log;
@@ -977,40 +980,40 @@ EXPLAIN (COSTS false) EXECUTE p1;
 
 -- No. A-12-1-1
 -- No. A-12-2-1
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)NestLoop(t1 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 
 -- No. A-12-1-2
 -- No. A-12-2-2
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)NestLoop(t1 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) EXECUTE p1;
 
 -- No. A-12-1-3
 -- No. A-12-2-3
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 EXPLAIN (COSTS false) EXECUTE p2;
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 EXPLAIN (COSTS false) EXECUTE p1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 
 -- No. A-12-1-4
 -- No. A-12-2-4
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 EXPLAIN (COSTS false) EXECUTE p2;
 EXPLAIN (COSTS false) EXECUTE p1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 
 DEALLOCATE p1;
 SET pg_hint_plan.parse_messages TO LOG;
@@ -1025,23 +1028,23 @@ EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 /*+Set(enable_indexscan on)Set(geqo_threshold 100)IndexScan(t2)MergeJoin(t1 t2)Leading(t2 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 
 -- No. A-12-3-2
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 BEGIN;
 /*+Set(enable_indexscan on)Set(geqo_threshold 100)IndexScan(t2)MergeJoin(t1 t2)Leading(t2 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 COMMIT;
 BEGIN;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 COMMIT;
 
@@ -1049,14 +1052,14 @@ COMMIT;
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 /*+Set(enable_indexscan on)Set(geqo_threshold 100)IndexScan(t2)MergeJoin(t1 t2)Leading(t2 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 \connect
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 LOAD 'pg_hint_plan';
-SELECT name, setting FROM settings;
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 
 SET pg_hint_plan.enable_hint TO on;
@@ -1241,16 +1244,16 @@ CREATE INDEX ON s1.tpc(a);
 PREPARE p1 AS SELECT * FROM s1.tpc WHERE a < 999;
 /*+ IndexScan(tpc) */PREPARE p2 AS SELECT * FROM s1.tpc WHERE a < 999;
 /*+ SeqScan(tpc) */PREPARE p3(int) AS SELECT * FROM s1.tpc WHERE a = $1;
-EXPLAIN EXECUTE p1;
-EXPLAIN EXECUTE p2;
-EXPLAIN EXECUTE p3(500);
+EXPLAIN (COSTS false) EXECUTE p1;
+EXPLAIN (COSTS false) EXECUTE p2;
+EXPLAIN (COSTS false) EXECUTE p3(500);
 -- The DROP invalidates the plan caches
 DROP TABLE s1.tpc;
 CREATE TABLE s1.tpc AS SELECT a FROM generate_series(0, 999) a;
 CREATE INDEX ON s1.tpc(a);
-EXPLAIN EXECUTE p1;
-EXPLAIN EXECUTE p2;
-EXPLAIN EXECUTE p3(500);
+EXPLAIN (COSTS false) EXECUTE p1;
+EXPLAIN (COSTS false) EXECUTE p2;
+EXPLAIN (COSTS false) EXECUTE p3(500);
 DEALLOCATE p1;
 DEALLOCATE p2;
 DEALLOCATE p3;

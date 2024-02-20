@@ -1,3 +1,4 @@
+DROP EXTENSION pg_hint_plan; -- cleanup
 LOAD 'pg_hint_plan';
 SET pg_hint_plan.enable_hint TO on;
 SET pg_hint_plan.debug_print TO on;
@@ -9,14 +10,21 @@ SET search_path TO public;
 ----
 -- No.A-1-1-3
 CREATE EXTENSION pg_hint_plan;
+LOG:  statement: CREATE EXTENSION pg_hint_plan;
 -- No.A-1-2-3
 DROP EXTENSION pg_hint_plan;
+LOG:  statement: DROP EXTENSION pg_hint_plan;
 -- No.A-1-1-4
 CREATE SCHEMA other_schema;
+LOG:  statement: CREATE SCHEMA other_schema;
 CREATE EXTENSION pg_hint_plan SCHEMA other_schema;
+LOG:  statement: CREATE EXTENSION pg_hint_plan SCHEMA other_schema;
+LOG:  An exception was encountered during the execution of statement: CREATE EXTENSION pg_hint_plan SCHEMA other_schema;
 ERROR:  extension "pg_hint_plan" must be installed in schema "hint_plan"
 CREATE EXTENSION pg_hint_plan;
+LOG:  statement: CREATE EXTENSION pg_hint_plan;
 DROP SCHEMA other_schema;
+LOG:  statement: DROP SCHEMA other_schema;
 ----
 ---- No. A-5-1 comment pattern
 ----
@@ -29,59 +37,70 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-5-1-2
 /* +SeqScan(t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-5-1-3
 /*SeqScan(t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-5-1-4
 --+SeqScan(t1)
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-5-1-5
 /* /*+SeqScan(t1)*/  */
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 ----
 ---- No. A-5-2 hint position
 ----
 -- No. A-5-2-1
 EXPLAIN (COSTS false) SELECT c1 FROM s1.t1 WHERE t1.c1 = 1;
-            QUERY PLAN             
------------------------------------
- Index Only Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Only Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) SELECT c1 FROM s1.t1 WHERE t1.c1 = 1;
@@ -91,12 +110,13 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-5-2-2
 EXPLAIN (COSTS false) SELECT c1, c2 AS c_2 /*+SeqScan(t1)*/ FROM s1.t1 WHERE t1.c1 = 1;
@@ -106,28 +126,33 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-5-2-3
 EXPLAIN (COSTS false) SELECT c1 AS "c1"/*+SeqScan(t1)*/ FROM s1.t1 WHERE t1.c1 = 1;
-            QUERY PLAN             
------------------------------------
- Index Only Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Only Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-5-2-4
 EXPLAIN (COSTS false) SELECT * /*+SeqScan(t1)*/ FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 ----
 ---- No. A-6-1 hint's table definition
@@ -143,18 +168,21 @@ SET pg_hint_plan.enable_hint_table TO on;
  application_name  | text    |           | not null | 
  hints             | text    |           | not null | 
 Indexes:
-    "hints_pkey" PRIMARY KEY, btree (id)
     "hints_norm_and_app" UNIQUE, btree (norm_query_string, application_name)
+    "hints_id" btree (id)
+Distributed by: (norm_query_string)
 
 ----
 ---- No. A-6-2 search condition
 ----
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-6-2-1
 INSERT INTO hint_plan.hints (norm_query_string, application_name, hints)
@@ -169,12 +197,13 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-6-2-2
 INSERT INTO hint_plan.hints (norm_query_string, application_name, hints)
@@ -189,12 +218,13 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 TRUNCATE hint_plan.hints;
 -- No. A-6-2-3
@@ -205,11 +235,13 @@ INSERT INTO hint_plan.hints (norm_query_string, application_name, hints)
 	'SeqScan(t1)'
 );
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 TRUNCATE hint_plan.hints;
 -- No. A-6-2-4
@@ -220,11 +252,13 @@ INSERT INTO hint_plan.hints (norm_query_string, application_name, hints)
 	'SeqScan(t1)'
 );
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 TRUNCATE hint_plan.hints;
 ----
@@ -244,11 +278,12 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-   QUERY PLAN   
-----------------
- Seq Scan on t1
-(1 row)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 TRUNCATE hint_plan.hints;
 -- No. A-6-3-2
@@ -265,12 +300,13 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 TRUNCATE hint_plan.hints;
 -- No. A-6-3-3
@@ -287,12 +323,13 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Seq Scan on t1
-   Filter: ((c1 = 1) OR (c1 = 0))
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: ((c1 = 1) OR (c1 = 0))
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 TRUNCATE hint_plan.hints;
 SET pg_hint_plan.enable_hint_table TO off;
@@ -300,11 +337,13 @@ SET pg_hint_plan.enable_hint_table TO off;
 ---- No. A-7-2 hint delimiter
 ----
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-1
 -- No. A-7-2-2
@@ -322,12 +361,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-8
 /*+ Set(enable_indexscan"off")Set(enable_bitmapscan"off")*/
@@ -339,12 +379,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-9
 /*+Set(enable_indexscan"off")Set(enable_bitmapscan"off") */
@@ -356,12 +397,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-10
 /*+ Set (enable_indexscan"off") Set (enable_bitmapscan"off")*/
@@ -373,12 +415,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-11
 /*+Set ( enable_indexscan"off")Set ( enable_bitmapscan"off")*/
@@ -390,12 +433,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-12
 /*+Set(enable_indexscan"off" ) Set(enable_bitmapscan"off" ) */
@@ -407,12 +451,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-13
 /*+Set( enable_indexscan "off" )Set( enable_bitmapscan "off" )*/
@@ -424,12 +469,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-14
 /*+ Set ( enable_indexscan "off" ) Set ( enable_bitmapscan "off" ) */
@@ -441,12 +487,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-15
 /*+	Set(enable_indexscan"off")Set(enable_bitmapscan"off")*/
@@ -458,12 +505,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-16
 /*+Set(enable_indexscan"off")Set(enable_bitmapscan"off")	*/
@@ -475,12 +523,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-17
 /*+	Set	(enable_indexscan"off")	Set	(enable_bitmapscan"off")*/
@@ -492,12 +541,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-18
 /*+Set	(	enable_indexscan"off")Set	(	enable_bitmapscan"off")*/
@@ -509,12 +559,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-19
 /*+Set(enable_indexscan"off"	)	Set(enable_bitmapscan"off"	)	*/
@@ -526,12 +577,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-20
 /*+Set(	enable_indexscan	"off"	)Set(	enable_bitmapscan	"off"	)*/
@@ -543,12 +595,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-21
 /*+	Set	(	enable_indexscan	"off"	)	Set	(	enable_bitmapscan	"off"	)	*/
@@ -560,12 +613,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-22
 /*+
@@ -578,12 +632,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-23
 /*+Set(enable_indexscan"off")Set(enable_bitmapscan"off")
@@ -596,12 +651,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-24
 /*+
@@ -617,12 +673,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-25
 /*+Set
@@ -638,12 +695,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-26
 /*+Set(enable_indexscan"off"
@@ -659,12 +717,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-27
 /*+Set(
@@ -682,12 +741,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-28
 /*+
@@ -710,12 +770,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-29
 /*+ 	
@@ -728,12 +789,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-30
 /*+Set(enable_indexscan"off")Set(enable_bitmapscan"off") 	
@@ -746,12 +808,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-31
 /*+ 	
@@ -767,12 +830,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-32
 /*+Set 	
@@ -788,12 +852,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-33
 /*+Set(enable_indexscan"off" 	
@@ -809,12 +874,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-34
 /*+Set( 	
@@ -832,12 +898,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-2-35
 /*+ 	
@@ -860,12 +927,13 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 ----
 ---- No. A-7-3 hint object pattern
@@ -881,12 +949,13 @@ SeqScan(t)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 t
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 t
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(ttt)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 ttt WHERE ttt.c1 = 1;
@@ -896,12 +965,13 @@ SeqScan(ttt)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 ttt
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 ttt
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("t")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 t WHERE t.c1 = 1;
@@ -911,12 +981,13 @@ SeqScan(t)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 t
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 t
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("ttt")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 ttt WHERE ttt.c1 = 1;
@@ -926,12 +997,13 @@ SeqScan(ttt)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 ttt
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 ttt
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-2
 -- No. A-9-2-2
@@ -943,12 +1015,13 @@ SeqScan(T)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 "T"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "T"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(TTT)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "TTT" WHERE "TTT".c1 = 1;
@@ -958,12 +1031,13 @@ SeqScan(TTT)
 not used hint:
 duplication hint:
 error hint:
-
-      QUERY PLAN      
-----------------------
- Seq Scan on t1 "TTT"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "TTT"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("T")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "T" WHERE "T".c1 = 1;
@@ -973,12 +1047,13 @@ SeqScan(T)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 "T"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "T"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("TTT")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "TTT" WHERE "TTT".c1 = 1;
@@ -988,12 +1063,13 @@ SeqScan(TTT)
 not used hint:
 duplication hint:
 error hint:
-
-      QUERY PLAN      
-----------------------
- Seq Scan on t1 "TTT"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "TTT"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-3
 -- No. A-9-2-3
@@ -1001,11 +1077,13 @@ error hint:
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "(" WHERE "(".c1 = 1;
 INFO:  pg_hint_plan: hint syntax error at or near "()"
 DETAIL:  Zero-length delimited string.
-            QUERY PLAN            
-----------------------------------
- Index Scan using t1_i1 on t1 "("
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 "("
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("(")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "(" WHERE "(".c1 = 1;
@@ -1015,12 +1093,13 @@ SeqScan("(")
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 "("
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "("
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-4
 -- No. A-9-2-4
@@ -1036,12 +1115,13 @@ not used hint:
 duplication hint:
 error hint:
 SeqScan()
-
-            QUERY PLAN            
-----------------------------------
- Index Scan using t1_i1 on t1 ")"
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 ")"
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(")")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 ")" WHERE ")".c1 = 1;
@@ -1051,12 +1131,13 @@ SeqScan(")")
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 ")"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 ")"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(")))")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 ")))" WHERE ")))".c1 = 1;
@@ -1066,12 +1147,13 @@ SeqScan(")))")
 not used hint:
 duplication hint:
 error hint:
-
-      QUERY PLAN      
-----------------------
- Seq Scan on t1 ")))"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 ")))"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-5
 -- No. A-9-2-5
@@ -1079,11 +1161,13 @@ error hint:
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 """" WHERE """".c1 = 1;
 INFO:  pg_hint_plan: hint syntax error at or near ""
 DETAIL:  Unterminated quoted string.
-            QUERY PLAN             
------------------------------------
- Index Scan using t1_i1 on t1 """"
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 """"
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("""")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 """" WHERE """".c1 = 1;
@@ -1093,12 +1177,13 @@ SeqScan("""")
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN      
----------------------
- Seq Scan on t1 """"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 """"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("""""""")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 """""""" WHERE """""""".c1 = 1;
@@ -1108,12 +1193,13 @@ SeqScan("""""""")
 not used hint:
 duplication hint:
 error hint:
-
-       QUERY PLAN        
--------------------------
- Seq Scan on t1 """"""""
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 """"""""
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-6
 -- No. A-9-2-6
@@ -1127,12 +1213,13 @@ not used hint:
 duplication hint:
 error hint:
 SeqScan()
-
-            QUERY PLAN            
-----------------------------------
- Index Scan using t1_i1 on t1 " "
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 " "
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(" ")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 " " WHERE " ".c1 = 1;
@@ -1142,12 +1229,13 @@ SeqScan(" ")
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 " "
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 " "
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("   ")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "   " WHERE "   ".c1 = 1;
@@ -1157,12 +1245,13 @@ SeqScan("   ")
 not used hint:
 duplication hint:
 error hint:
-
-      QUERY PLAN      
-----------------------
- Seq Scan on t1 "   "
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "   "
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-7
 -- No. A-9-2-7
@@ -1176,12 +1265,13 @@ not used hint:
 duplication hint:
 error hint:
 SeqScan()
-
-            QUERY PLAN             
------------------------------------
- Index Scan using t1_i1 on t1 "  "
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                 
+-------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 "    "
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("	")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "	" WHERE "	".c1 = 1;
@@ -1191,12 +1281,13 @@ SeqScan("	")
 not used hint:
 duplication hint:
 error hint:
-
-        QUERY PLAN         
----------------------------
- Seq Scan on t1 "        "
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "  "
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("			")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "			" WHERE "			".c1 = 1;
@@ -1206,12 +1297,13 @@ SeqScan("			")
 not used hint:
 duplication hint:
 error hint:
-
                 QUERY PLAN                 
 -------------------------------------------
- Seq Scan on t1 "                        "
-   Filter: (c1 = 1)
-(2 rows)
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "                  "
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-8
 -- No. A-9-2-8
@@ -1228,63 +1320,66 @@ not used hint:
 duplication hint:
 error hint:
 SeqScan()
-
-           QUERY PLAN           
---------------------------------
- Index Scan using t1_i1 on t1 "
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 "
  "
-   Index Cond: (c1 = 1)
-(3 rows)
-
-/*+SeqScan("
-")*/
-EXPLAIN (COSTS false) SELECT * FROM s1.t1 "
-" WHERE "
-".c1 = 1;
-LOG:  pg_hint_plan:
-used hint:
-SeqScan("
-")
-not used hint:
-duplication hint:
-error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 "
- "
-   Filter: (c1 = 1)
-(3 rows)
-
-/*+SeqScan("
-
-
-")*/
-EXPLAIN (COSTS false) SELECT * FROM s1.t1 "
-
-
-" WHERE "
-
-
-".c1 = 1;
-LOG:  pg_hint_plan:
-used hint:
-SeqScan("
-
-
-")
-not used hint:
-duplication hint:
-error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1 "
- 
- 
- "
-   Filter: (c1 = 1)
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
 (5 rows)
+
+/*+SeqScan("
+")*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1 "
+" WHERE "
+".c1 = 1;
+LOG:  pg_hint_plan:
+used hint:
+SeqScan("
+")
+not used hint:
+duplication hint:
+error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "
+ "
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(5 rows)
+
+/*+SeqScan("
+
+
+")*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1 "
+
+
+" WHERE "
+
+
+".c1 = 1;
+LOG:  pg_hint_plan:
+used hint:
+SeqScan("
+
+
+")
+not used hint:
+duplication hint:
+error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "
+ 
+ 
+ "
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(7 rows)
 
 -- No. A-7-3-9
 -- No. A-9-2-9
@@ -1296,12 +1391,13 @@ SeqScan(Set)
 not used hint:
 duplication hint:
 error hint:
-
-      QUERY PLAN      
-----------------------
- Seq Scan on t1 "Set"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "Set"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("Set")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "Set" WHERE "Set".c1 = 1;
@@ -1311,12 +1407,13 @@ SeqScan(Set)
 not used hint:
 duplication hint:
 error hint:
-
-      QUERY PLAN      
-----------------------
- Seq Scan on t1 "Set"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "Set"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("Set SeqScan Leading")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "Set SeqScan Leading" WHERE "Set SeqScan Leading".c1 = 1;
@@ -1326,12 +1423,13 @@ SeqScan("Set SeqScan Leading")
 not used hint:
 duplication hint:
 error hint:
-
-              QUERY PLAN              
---------------------------------------
- Seq Scan on t1 "Set SeqScan Leading"
-   Filter: (c1 = 1)
-(2 rows)
+                 QUERY PLAN                 
+--------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "Set SeqScan Leading"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-10
 -- No. A-9-2-10
@@ -1343,12 +1441,13 @@ SeqScan(あ)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN      
----------------------
- Seq Scan on t1 "あ"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "あ"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(あいう)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 あいう WHERE あいう.c1 = 1;
@@ -1358,12 +1457,13 @@ SeqScan(あいう)
 not used hint:
 duplication hint:
 error hint:
-
-       QUERY PLAN        
--------------------------
- Seq Scan on t1 "あいう"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "あいう"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("あ")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 あ WHERE あ.c1 = 1;
@@ -1373,12 +1473,13 @@ SeqScan(あ)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN      
----------------------
- Seq Scan on t1 "あ"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "あ"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan("あいう")*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 あいう WHERE あいう.c1 = 1;
@@ -1388,12 +1489,13 @@ SeqScan(あいう)
 not used hint:
 duplication hint:
 error hint:
-
-       QUERY PLAN        
--------------------------
- Seq Scan on t1 "あいう"
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "あいう"
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-11
 -- No. A-9-2-11
@@ -1402,22 +1504,32 @@ EXPLAIN (COSTS false) SELECT * FROM s1.t1 "/**/" WHERE "/**/".c1 = 1;
 INFO:  pg_hint_plan: hint syntax error at or near "/**/)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "/**/" WHERE "/**/".c1 = 1;"
 DETAIL:  Nested block comments are not supported.
-             QUERY PLAN              
--------------------------------------
- Index Scan using t1_i1 on t1 "/**/"
-   Index Cond: (c1 = 1)
-(2 rows)
+INFO:  pg_hint_plan: hint syntax error at or near "/**/)*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1 "/**/" WHERE "/**/".c1 = 1;"
+DETAIL:  Nested block comments are not supported.
+                QUERY PLAN                 
+-------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 "/**/"
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(/**//**//**/)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "/**//**//**/" WHERE "/**//**//**/".c1 = 1;
 INFO:  pg_hint_plan: hint syntax error at or near "/**//**//**/)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 "/**//**//**/" WHERE "/**//**//**/".c1 = 1;"
 DETAIL:  Nested block comments are not supported.
-                 QUERY PLAN                  
----------------------------------------------
- Index Scan using t1_i1 on t1 "/**//**//**/"
-   Index Cond: (c1 = 1)
-(2 rows)
+INFO:  pg_hint_plan: hint syntax error at or near "/**//**//**/)*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1 "/**//**//**/" WHERE "/**//**//**/".c1 = 1;"
+DETAIL:  Nested block comments are not supported.
+                    QUERY PLAN                     
+---------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 "/**//**//**/"
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-7-3-12
 -- No. A-9-2-12
@@ -1431,12 +1543,19 @@ EXPLAIN (COSTS false) SELECT * FROM s1.t1 "tT()""
 Set/**/あ" WHERE "tT()"" 	
 Set/**/あ".c1 = 1;"
 DETAIL:  Nested block comments are not supported.
-                QUERY PLAN                
-------------------------------------------
- Index Scan using t1_i1 on t1 "tT()""    
+INFO:  pg_hint_plan: hint syntax error at or near "/**/あ")*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1 "tT()"" 	
+Set/**/あ" WHERE "tT()"" 	
+Set/**/あ".c1 = 1;"
+DETAIL:  Nested block comments are not supported.
+                    QUERY PLAN                    
+--------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 "tT()""      
  Set/**/あ"
-   Index Cond: (c1 = 1)
-(3 rows)
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 --"
 /*+SeqScan("tT()"" 	
@@ -1451,13 +1570,14 @@ Setあ")
 not used hint:
 duplication hint:
 error hint:
-
-        QUERY PLAN        
---------------------------
- Seq Scan on t1 "tT()""  
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1 "tT()""    
  Setあ"
-   Filter: (c1 = 1)
-(3 rows)
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 -- No. A-7-3-13
 -- No. A-9-2-13
@@ -1469,12 +1589,13 @@ not used hint:
 SeqScan(a123456789b123456789c123456789d123456789e123456789f123)
 duplication hint:
 error hint:
-
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
- Index Scan using t1_i1 on t1 "123456789012345678901234567890123456789012345678901234"
-   Index Cond: (c1 = 1)
-(2 rows)
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1 "123456789012345678901234567890123456789012345678901234"
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 ----
 ---- No. A-7-4 hint parse error
@@ -1490,14 +1611,15 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-7-4-2
 /*+Set(enable_indexscan off)Set(enable_tidscan off Set(enable_bitmapscan off)SeqScan(t1)*/
@@ -1510,14 +1632,15 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-7-4-3
 /*+Set(enable_indexscan off)Set(enable_tidscan "off)Set(enable_bitmapscan off)SeqScan(t1)*/
@@ -1530,14 +1653,15 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-7-4-4
 /*+Set(enable_indexscan off)SeqScan("")Set(enable_bitmapscan off)*/
@@ -1550,14 +1674,15 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-7-4-5
 /*+Set(enable_indexscan off)NoSet(enable_tidscan off)Set(enable_bitmapscan off)SeqScan(t1)*/
@@ -1570,14 +1695,15 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-7-4-6
 /*+Set(enable_indexscan off)"Set"(enable_tidscan off)Set(enable_bitmapscan off)SeqScan(t1)*/
@@ -1590,14 +1716,15 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-7-4-7
 /*+Set(enable_indexscan off)Set(enable_tidscan /* value */off)Set(enable_bitmapscan off)SeqScan(t1)*/
@@ -1605,11 +1732,16 @@ EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
 INFO:  pg_hint_plan: hint syntax error at or near "/* value */off)Set(enable_bitmapscan off)SeqScan(t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;"
 DETAIL:  Nested block comments are not supported.
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+INFO:  pg_hint_plan: hint syntax error at or near "/* value */off)Set(enable_bitmapscan off)SeqScan(t1)*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;"
+DETAIL:  Nested block comments are not supported.
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 ----
 ---- No. A-8-1 original GUC parameter
@@ -1667,13 +1799,15 @@ SHOW pg_hint_plan.enable_hint;
 
 /*+Set(enable_indexscan off)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-8-2-2
 SET pg_hint_plan.enable_hint TO off;
@@ -1685,11 +1819,13 @@ SHOW pg_hint_plan.enable_hint;
 
 /*+Set(enable_indexscan off)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-8-2-3
 -- Don't test PostgreSQL itself.
@@ -1727,14 +1863,15 @@ Set(enable_indexscan off)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-8-3-2
 SET pg_hint_plan.debug_print TO off;
@@ -1746,13 +1883,15 @@ SHOW pg_hint_plan.debug_print;
 
 /*+Set(enable_indexscan off)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-8-3-3
 SET pg_hint_plan.debug_print TO DEFAULT;
@@ -1764,16 +1903,19 @@ SHOW pg_hint_plan.debug_print;
 
 /*+Set(enable_indexscan off)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 -- No. A-8-3-4
 SET pg_hint_plan.debug_print TO enable;
+LOG:  An exception was encountered during the execution of statement: SET pg_hint_plan.debug_print TO enable;
 ERROR:  invalid value for parameter "pg_hint_plan.debug_print": "enable"
 HINT:  Available values: off, on, detailed, verbose.
 SHOW pg_hint_plan.debug_print;
@@ -1785,130 +1927,37 @@ SHOW pg_hint_plan.debug_print;
 ----
 ---- No. A-8-4 original GUC parameter pg_hint_plan.parse_messages
 ----
-SET client_min_messages TO debug5;
-DEBUG:  CommitTransaction(1) name: unnamed; blockState: STARTED; state: INPROGRESS, xid/subid/cid: 0/1/0
--- No. A-8-4-1
-SET pg_hint_plan.parse_messages TO debug5;
-DEBUG:  StartTransaction(1) name: unnamed; blockState: DEFAULT; state: INPROGRESS, xid/subid/cid: 0/1/0
-DEBUG:  CommitTransaction(1) name: unnamed; blockState: STARTED; state: INPROGRESS, xid/subid/cid: 0/1/0
-SHOW pg_hint_plan.parse_messages;
-DEBUG:  StartTransaction(1) name: unnamed; blockState: DEFAULT; state: INPROGRESS, xid/subid/cid: 0/1/0
-DEBUG:  CommitTransaction(1) name: unnamed; blockState: STARTED; state: INPROGRESS, xid/subid/cid: 0/1/0
- pg_hint_plan.parse_messages 
------------------------------
- debug5
-(1 row)
-
-/*+Set*/SELECT 1;
-DEBUG:  StartTransaction(1) name: unnamed; blockState: DEFAULT; state: INPROGRESS, xid/subid/cid: 0/1/0
-DEBUG:  pg_hint_plan: hint syntax error at or near ""
-DETAIL:  Opening parenthesis is necessary.
-DEBUG:  CommitTransaction(1) name: unnamed; blockState: STARTED; state: INPROGRESS, xid/subid/cid: 0/1/0
- ?column? 
-----------
-        1
-(1 row)
-
-SET client_min_messages TO debug4;
-DEBUG:  StartTransaction(1) name: unnamed; blockState: DEFAULT; state: INPROGRESS, xid/subid/cid: 0/1/0
-/*+Set*/SELECT 1;
- ?column? 
-----------
-        1
-(1 row)
-
--- No. A-8-4-2
-SET pg_hint_plan.parse_messages TO debug4;
-SHOW pg_hint_plan.parse_messages;
- pg_hint_plan.parse_messages 
------------------------------
- debug4
-(1 row)
-
-/*+Set*/SELECT 1;
-DEBUG:  pg_hint_plan: hint syntax error at or near ""
-DETAIL:  Opening parenthesis is necessary.
- ?column? 
-----------
-        1
-(1 row)
-
-SET client_min_messages TO debug3;
-/*+Set*/SELECT 1;
- ?column? 
-----------
-        1
-(1 row)
-
--- No. A-8-4-3
-SET pg_hint_plan.parse_messages TO debug3;
-SHOW pg_hint_plan.parse_messages;
- pg_hint_plan.parse_messages 
------------------------------
- debug3
-(1 row)
-
-/*+Set*/SELECT 1;
-DEBUG:  pg_hint_plan: hint syntax error at or near ""
-DETAIL:  Opening parenthesis is necessary.
- ?column? 
-----------
-        1
-(1 row)
-
-SET client_min_messages TO debug2;
-/*+Set*/SELECT 1;
- ?column? 
-----------
-        1
-(1 row)
-
+-- SET client_min_messages TO debug5;
+-- No. A-8-4-1 don't test debug5 because it's too verbose with too much unstable number
+-- SET pg_hint_plan.parse_messages TO debug5;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug4;
+-- /*+Set*/SELECT 1;
+-- No. A-8-4-2 don't test debug4 because it's too verbose with too much unstable number
+-- SET pg_hint_plan.parse_messages TO debug4;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug3;
+-- /*+Set*/SELECT 1;
+-- No. A-8-4-3 don't test debug3 because it's too verbose with too much unstable number
+-- SET pg_hint_plan.parse_messages TO debug3;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug2;
+-- /*+Set*/SELECT 1;
 -- No. A-8-4-4
-SET pg_hint_plan.parse_messages TO debug2;
-SHOW pg_hint_plan.parse_messages;
- pg_hint_plan.parse_messages 
------------------------------
- debug
-(1 row)
-
-/*+Set*/SELECT 1;
-DEBUG:  pg_hint_plan: hint syntax error at or near ""
-DETAIL:  Opening parenthesis is necessary.
- ?column? 
-----------
-        1
-(1 row)
-
-SET client_min_messages TO debug1;
-/*+Set*/SELECT 1;
- ?column? 
-----------
-        1
-(1 row)
-
+-- SET pg_hint_plan.parse_messages TO debug2;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO debug1;
+-- /*+Set*/SELECT 1;
 -- No. A-8-4-5
-SET pg_hint_plan.parse_messages TO debug1;
-SHOW pg_hint_plan.parse_messages;
- pg_hint_plan.parse_messages 
------------------------------
- debug1
-(1 row)
-
-/*+Set*/SELECT 1;
-DEBUG:  pg_hint_plan: hint syntax error at or near ""
-DETAIL:  Opening parenthesis is necessary.
- ?column? 
-----------
-        1
-(1 row)
-
-SET client_min_messages TO log;
-/*+Set*/SELECT 1;
- ?column? 
-----------
-        1
-(1 row)
-
+-- SET pg_hint_plan.parse_messages TO debug1;
+-- SHOW pg_hint_plan.parse_messages;
+-- /*+Set*/SELECT 1;
+-- SET client_min_messages TO log;
+-- /*+Set*/SELECT 1;
 -- No. A-8-4-6
 SET pg_hint_plan.parse_messages TO log;
 SHOW pg_hint_plan.parse_messages;
@@ -2012,11 +2061,11 @@ SHOW pg_hint_plan.parse_messages;
 (1 row)
 
 /*+Set*/SELECT 1;
-ERROR:  pg_hint_plan: hint syntax error at or near ""
+ERROR:  pg_hint_plan: hint syntax error at or near "" (pg_hint_plan.c:1832)
 DETAIL:  Opening parenthesis is necessary.
 SET client_min_messages TO error;
 /*+Set*/SELECT 1;
-ERROR:  pg_hint_plan: hint syntax error at or near ""
+ERROR:  pg_hint_plan: hint syntax error at or near "" (pg_hint_plan.c:1832)
 DETAIL:  Opening parenthesis is necessary.
 -- No. A-8-4-11
 RESET client_min_messages;
@@ -2082,11 +2131,13 @@ SHOW pg_hint_plan.enable_hint_table;
 (1 row)
 
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-8-5-2
 SET pg_hint_plan.enable_hint_table TO off;
@@ -2097,11 +2148,13 @@ SHOW pg_hint_plan.enable_hint_table;
 (1 row)
 
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-8-5-3
 SET pg_hint_plan.enable_hint_table TO DEFAULT;
@@ -2112,11 +2165,13 @@ SHOW pg_hint_plan.enable_hint_table;
 (1 row)
 
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-8-5-4
 SET pg_hint_plan.enable_hint_table TO enable;
@@ -2172,12 +2227,13 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-9-3-2
 /*+SeqScan(no_table)*/
@@ -2188,26 +2244,33 @@ not used hint:
 SeqScan(no_table)
 duplication hint:
 error hint:
-
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-9-3-3
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1 AND t1.ctid = '(1,1)';
-            QUERY PLAN             
------------------------------------
- Tid Scan on t1
-   TID Cond: (ctid = '(1,1)'::tid)
-   Filter: (c1 = 1)
-(3 rows)
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Tid Scan on t1
+         TID Cond: (ctid = '(1,1)'::tid)
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 /*+TidScan(t1)BitmapScan(t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1 AND t1.ctid = '(1,1)';
 INFO:  pg_hint_plan: hint syntax error at or near "TidScan(t1)BitmapScan(t1)"
 DETAIL:  Conflict scan method hint.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
@@ -2215,15 +2278,16 @@ not used hint:
 duplication hint:
 TidScan(t1)
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 = 1)
-   Filter: (ctid = '(1,1)'::tid)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 = 1)
-(5 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 = 1)
+         Filter: (ctid = '(1,1)'::tid)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(7 rows)
 
 /*+TidScan(t1)BitmapScan(t1)IndexScan(t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1 AND t1.ctid = '(1,1)';
@@ -2231,6 +2295,8 @@ INFO:  pg_hint_plan: hint syntax error at or near "TidScan(t1)BitmapScan(t1)Inde
 DETAIL:  Conflict scan method hint.
 INFO:  pg_hint_plan: hint syntax error at or near "BitmapScan(t1)IndexScan(t1)"
 DETAIL:  Conflict scan method hint.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t1)
@@ -2239,13 +2305,14 @@ duplication hint:
 TidScan(t1)
 BitmapScan(t1)
 error hint:
-
-           QUERY PLAN            
----------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-   Filter: (ctid = '(1,1)'::tid)
-(3 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+         Filter: (ctid = '(1,1)'::tid)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 /*+TidScan(t1)BitmapScan(t1)IndexScan(t1)SeqScan(t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1 WHERE t1.c1 = 1 AND t1.ctid = '(1,1)';
@@ -2255,6 +2322,8 @@ INFO:  pg_hint_plan: hint syntax error at or near "BitmapScan(t1)IndexScan(t1)Se
 DETAIL:  Conflict scan method hint.
 INFO:  pg_hint_plan: hint syntax error at or near "IndexScan(t1)SeqScan(t1)"
 DETAIL:  Conflict scan method hint.
+NOTICE:  SELECT uses system-defined column "t1.ctid" without the necessary companion column "t1.gp_segment_id"
+HINT:  To uniquely identify a row within a distributed table, use the "gp_segment_id" column together with the "ctid" column.
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t1)
@@ -2264,12 +2333,13 @@ TidScan(t1)
 BitmapScan(t1)
 IndexScan(t1)
 error hint:
-
-                   QUERY PLAN                   
-------------------------------------------------
- Seq Scan on t1
-   Filter: ((c1 = 1) AND (ctid = '(1,1)'::tid))
-(2 rows)
+                      QUERY PLAN                      
+------------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: ((c1 = 1) AND (ctid = '(1,1)'::tid))
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- No. A-9-3-4
 /*+Set(enable_indexscan enable)*/
@@ -2281,67 +2351,82 @@ not used hint:
 duplication hint:
 error hint:
 Set(enable_indexscan enable)
-
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 ----
 ---- No. A-10-1 hint state output
 ----
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 = 1;
 EXPLAIN (COSTS false) EXECUTE p1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 DEALLOCATE p1;
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 < $1;
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-     QUERY PLAN      
----------------------
- Seq Scan on t1
-   Filter: (c1 < $1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < $1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 DEALLOCATE p1;
 -- No. A-10-1-1
@@ -2356,28 +2441,26 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1;
-LOG:  pg_hint_plan:
-used hint:
-SeqScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 DEALLOCATE p1;
 /*+BitmapScan(t1)*/
@@ -2390,31 +2473,15 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
-
-/*+SeqScan(t1)*/
-EXPLAIN (COSTS false) EXECUTE p1 (1000);
-LOG:  pg_hint_plan:
-used hint:
-BitmapScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
@@ -2424,31 +2491,15 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
-
-/*+SeqScan(t1)*/
-EXPLAIN (COSTS false) EXECUTE p1 (1000);
-LOG:  pg_hint_plan:
-used hint:
-BitmapScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
@@ -2458,14 +2509,15 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
@@ -2475,32 +2527,66 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+/*+SeqScan(t1)*/
+EXPLAIN (COSTS false) EXECUTE p1 (1000);
+LOG:  pg_hint_plan:
+used hint:
+BitmapScan(t1)
+not used hint:
+duplication hint:
+error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
+
+/*+SeqScan(t1)*/
+EXPLAIN (COSTS false) EXECUTE p1 (1000);
+LOG:  pg_hint_plan:
+used hint:
+BitmapScan(t1)
+not used hint:
+duplication hint:
+error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < $1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < $1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-LOG:  pg_hint_plan:
-used hint:
-BitmapScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < $1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < $1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 DEALLOCATE p1;
 -- No. A-10-1-3
@@ -2514,27 +2600,25 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 EXPLAIN (COSTS false) EXECUTE p1;
-LOG:  pg_hint_plan:
-used hint:
-SeqScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-     QUERY PLAN     
---------------------
- Seq Scan on t1
-   Filter: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 DEALLOCATE p1;
 /*+BitmapScan(t1)*/
@@ -2546,30 +2630,15 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
-
-EXPLAIN (COSTS false) EXECUTE p1 (1000);
-LOG:  pg_hint_plan:
-used hint:
-BitmapScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
 LOG:  pg_hint_plan:
@@ -2578,30 +2647,15 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
-
-EXPLAIN (COSTS false) EXECUTE p1 (1000);
-LOG:  pg_hint_plan:
-used hint:
-BitmapScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
 LOG:  pg_hint_plan:
@@ -2610,14 +2664,15 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < 1000)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < 1000)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
 LOG:  pg_hint_plan:
@@ -2626,31 +2681,63 @@ BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+EXPLAIN (COSTS false) EXECUTE p1 (1000);
+LOG:  pg_hint_plan:
+used hint:
+BitmapScan(t1)
+not used hint:
+duplication hint:
+error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < 1000)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(6 rows)
+
+EXPLAIN (COSTS false) EXECUTE p1 (1000);
+LOG:  pg_hint_plan:
+used hint:
+BitmapScan(t1)
+not used hint:
+duplication hint:
+error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < $1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < $1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-LOG:  pg_hint_plan:
-used hint:
-BitmapScan(t1)
-not used hint:
-duplication hint:
-error hint:
-
-            QUERY PLAN            
-----------------------------------
- Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
-   ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on t1
+         Recheck Cond: (c1 < $1)
+         ->  Bitmap Index Scan on t1_i1
+               Index Cond: (c1 < $1)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 DEALLOCATE p1;
 -- No. A-10-1-5
@@ -2658,74 +2745,96 @@ DEALLOCATE p1;
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 = 1;
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1;
-          QUERY PLAN          
-------------------------------
- Index Scan using t1_i1 on t1
-   Index Cond: (c1 = 1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using t1_i1 on t1
+         Index Cond: (c1 = 1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 DEALLOCATE p1;
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 < $1;
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
- Seq Scan on t1
-   Filter: (c1 < 1000)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-     QUERY PLAN      
----------------------
- Seq Scan on t1
-   Filter: (c1 < $1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < $1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) EXECUTE p1 (1000);
-     QUERY PLAN      
----------------------
- Seq Scan on t1
-   Filter: (c1 < $1)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on t1
+         Filter: (c1 < $1)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 DEALLOCATE p1;
 -- No. A-10-1-9
@@ -2734,157 +2843,179 @@ DEALLOCATE p1;
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 = 1;
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1;
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 = 1)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1;
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 = 1)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 DEALLOCATE p1;
 /*+BitmapScan(t1)*/
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 < $1;
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
+   Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+         Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+SeqScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
+   Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+         Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 DEALLOCATE p1;
 -- No. A-10-1-11
@@ -2892,149 +3023,171 @@ DEALLOCATE p1;
 /*+SeqScan(t1)*/
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 = 1;
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1;
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 = 1)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1;
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-     QUERY PLAN     
---------------------
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 = 1)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 DEALLOCATE p1;
 /*+BitmapScan(t1)*/
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 < $1;
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
    Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
          Index Cond: (c1 < 1000)
-(4 rows)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
+   Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+         Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 LOG:  pg_hint_plan:
 used hint:
 BitmapScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
-            QUERY PLAN            
-----------------------------------
+             QUERY PLAN              
+-------------------------------------
  Bitmap Heap Scan on t1
-   Recheck Cond: (c1 < $1)
+   Recheck Cond: (c1 < 1000)
    ->  Bitmap Index Scan on t1_i1
-         Index Cond: (c1 < $1)
-(4 rows)
+         Index Cond: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(5 rows)
 
 DEALLOCATE p1;
 -- No. A-10-1-13
@@ -3042,79 +3195,110 @@ DEALLOCATE p1;
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 = 1;
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1;
-          QUERY PLAN          
-------------------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Index Scan using t1_i1 on t1
    Index Cond: (c1 = 1)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1;
-          QUERY PLAN          
-------------------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Index Scan using t1_i1 on t1
    Index Cond: (c1 = 1)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 DEALLOCATE p1;
 PREPARE p1 AS SELECT * FROM s1.t1 WHERE t1.c1 < $1;
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 < 1000)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 < 1000)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 < 1000)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 < 1000)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
-      QUERY PLAN       
------------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
    Filter: (c1 < 1000)
-(2 rows)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
-     QUERY PLAN      
----------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
-   Filter: (c1 < $1)
-(2 rows)
+   Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+LOG:  An exception was encountered during the execution of statement: UPDATE pg_catalog.pg_class SET relpages = relpages WHERE relname = 't1';
+ERROR:  permission denied: "pg_class" is a system catalog
 /*+BitmapScan(t1)*/
 EXPLAIN (COSTS false) CREATE TABLE test AS EXECUTE p1 (1000);
-     QUERY PLAN      
----------------------
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'c1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+             QUERY PLAN              
+-------------------------------------
  Seq Scan on t1
-   Filter: (c1 < $1)
-(2 rows)
+   Filter: (c1 < 1000)
+ Optimizer: Postgres query optimizer
+(3 rows)
 
 DEALLOCATE p1;
 ----
@@ -3122,6 +3306,7 @@ DEALLOCATE p1;
 ----
 -- No. A-10-4-1
 EXECUTE p1;
+LOG:  An exception was encountered during the execution of statement: EXECUTE p1;
 ERROR:  prepared statement "p1" does not exist
 SHOW pg_hint_plan.debug_print;
  pg_hint_plan.debug_print 
@@ -3152,7 +3337,6 @@ Set(enable_seqscan off)
 not used hint:
 duplication hint:
 error hint:
-
  c1 | c2 | c3 | c4 
 ----+----+----+----
   1 |  1 |  1 | 1
@@ -3165,7 +3349,6 @@ SeqScan(t1)
 not used hint:
 duplication hint:
 error hint:
-
  c1 | c2 | c3 | c4 
 ----+----+----+----
   1 |  1 |  1 | 1
@@ -3176,30 +3359,32 @@ SELECT s.query, s.calls
   JOIN pg_catalog.pg_database d
     ON (s.dbid = d.oid)
  ORDER BY 1;
-                query                 | calls 
---------------------------------------+-------
- SELECT * FROM s1.t1 WHERE t1.c1 = $1 |     3
- SELECT pg_stat_statements_reset()    |     1
-(2 rows)
+               query               | calls 
+-----------------------------------+-------
+ SELECT pg_stat_statements_reset() |     1
+(1 row)
 
 ----
 ---- No. A-12-1 reset of global variable of core at the error
 ---- No. A-12-2 reset of global variable of original at the error
 ----
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Index Scan using t1_i1 on t1
-   ->  Sort
-         Sort Key: t2.c1
-         ->  Seq Scan on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Index Scan using t1_i1 on t1
+         ->  Sort
+               Sort Key: t2.c1
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)NestLoop(t1 t1)*/
 PREPARE p1 AS SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
 EXPLAIN (COSTS false) EXECUTE p1;
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
 INFO:  pg_hint_plan: hint syntax error at or near "NestLoop(t1 t1)"
 DETAIL:  Relation name "t1" is duplicated.
 LOG:  pg_hint_plan:
@@ -3212,128 +3397,33 @@ not used hint:
 duplication hint:
 error hint:
 NestLoop(t1 t1)
-
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Sort
-         Sort Key: t1.c1
-         ->  Seq Scan on t1
-   ->  Index Scan using t2_i1 on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Sort
+               Sort Key: t1.c1
+               ->  Seq Scan on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
 -- No. A-12-1-1
 -- No. A-12-2-1
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)NestLoop(t1 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-ERROR:  pg_hint_plan: hint syntax error at or near "NestLoop(t1 t1)"
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
+LOG:  An exception was encountered during the execution of statement: /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)NestLoop(t1 t1)*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
+ERROR:  pg_hint_plan: hint syntax error at or near "NestLoop(t1 t1)" (pg_hint_plan.c:4840)
 DETAIL:  Relation name "t1" is duplicated.
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t1)
@@ -3343,195 +3433,53 @@ Set(geqo_threshold 100)
 not used hint:
 duplication hint:
 error hint:
-
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Sort
-         Sort Key: t1.c1
-         ->  Seq Scan on t1
-   ->  Index Scan using t2_i1 on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Sort
+               Sort Key: t1.c1
+               ->  Seq Scan on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
 -- No. A-12-1-2
 -- No. A-12-2-2
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)NestLoop(t1 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-ERROR:  pg_hint_plan: hint syntax error at or near "NestLoop(t1 t1)"
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
+LOG:  An exception was encountered during the execution of statement: /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)NestLoop(t1 t1)*/
+EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
+ERROR:  pg_hint_plan: hint syntax error at or near "NestLoop(t1 t1)" (pg_hint_plan.c:4840)
 DETAIL:  Relation name "t1" is duplicated.
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) EXECUTE p1;
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Sort
-         Sort Key: t1.c1
-         ->  Seq Scan on t1
-   ->  Index Scan using t2_i1 on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Sort
+               Sort Key: t1.c1
+               ->  Seq Scan on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
 -- No. A-12-1-3
 -- No. A-12-2-3
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 EXPLAIN (COSTS false) EXECUTE p2;
+LOG:  An exception was encountered during the execution of statement: EXPLAIN (COSTS false) EXECUTE p2;
 ERROR:  prepared statement "p2" does not exist
 /*+Set(enable_seqscan off)Set(geqo_threshold 100)SeqScan(t1)MergeJoin(t1 t2)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t1)
@@ -3541,279 +3489,90 @@ Set(geqo_threshold 100)
 not used hint:
 duplication hint:
 error hint:
-
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Sort
-         Sort Key: t1.c1
-         ->  Seq Scan on t1
-   ->  Index Scan using t2_i1 on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Sort
+               Sort Key: t1.c1
+               ->  Seq Scan on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
 EXPLAIN (COSTS false) EXECUTE p1;
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Sort
-         Sort Key: t1.c1
-         ->  Seq Scan on t1
-   ->  Index Scan using t2_i1 on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Sort
+               Sort Key: t1.c1
+               ->  Seq Scan on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 -- No. A-12-1-4
 -- No. A-12-2-4
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 SET pg_hint_plan.parse_messages TO error;
 EXPLAIN (COSTS false) EXECUTE p2;
+LOG:  An exception was encountered during the execution of statement: EXPLAIN (COSTS false) EXECUTE p2;
 ERROR:  prepared statement "p2" does not exist
 EXPLAIN (COSTS false) EXECUTE p1;
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Sort
-         Sort Key: t1.c1
-         ->  Seq Scan on t1
-   ->  Index Scan using t2_i1 on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Sort
+               Sort Key: t1.c1
+               ->  Seq Scan on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | on
- enable_material                | on
- enable_mergejoin               | on
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 DEALLOCATE p1;
 SET pg_hint_plan.parse_messages TO LOG;
 ----
 ---- No. A-12-3 effective range of the hint
 ----
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Index Scan using t1_i1 on t1
-   ->  Sort
-         Sort Key: t2.c1
-         ->  Seq Scan on t2
-(6 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Index Scan using t1_i1 on t1
+         ->  Sort
+               Sort Key: t2.c1
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(8 rows)
 
 -- No. A-12-3-1
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-          QUERY PLAN          
-------------------------------
- Hash Join
-   Hash Cond: (t1.c1 = t2.c1)
-   ->  Seq Scan on t1
-   ->  Hash
-         ->  Seq Scan on t2
-(5 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Hash Join
+         Hash Cond: (t1.c1 = t2.c1)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(7 rows)
 
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | off
- enable_material                | on
- enable_mergejoin               | off
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 /*+Set(enable_indexscan on)Set(geqo_threshold 100)IndexScan(t2)MergeJoin(t1 t2)Leading(t2 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t2)
@@ -3824,143 +3583,49 @@ Set(geqo_threshold 100)
 not used hint:
 duplication hint:
 error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Index Scan using t1_i1 on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(6 rows)
 
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Index Scan using t1_i1 on t1
-   ->  Index Scan using t2_i1 on t2
-(4 rows)
-
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | off
- enable_material                | on
- enable_mergejoin               | off
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-          QUERY PLAN          
-------------------------------
- Hash Join
-   Hash Cond: (t1.c1 = t2.c1)
-   ->  Seq Scan on t1
-   ->  Hash
-         ->  Seq Scan on t2
-(5 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Hash Join
+         Hash Cond: (t1.c1 = t2.c1)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(7 rows)
 
 -- No. A-12-3-2
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-          QUERY PLAN          
-------------------------------
- Hash Join
-   Hash Cond: (t1.c1 = t2.c1)
-   ->  Seq Scan on t1
-   ->  Hash
-         ->  Seq Scan on t2
-(5 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Hash Join
+         Hash Cond: (t1.c1 = t2.c1)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(7 rows)
 
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | off
- enable_material                | on
- enable_mergejoin               | off
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 BEGIN;
 /*+Set(enable_indexscan on)Set(geqo_threshold 100)IndexScan(t2)MergeJoin(t1 t2)Leading(t2 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t2)
@@ -3971,145 +3636,51 @@ Set(geqo_threshold 100)
 not used hint:
 duplication hint:
 error hint:
-
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Index Scan using t1_i1 on t1
-   ->  Index Scan using t2_i1 on t2
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Index Scan using t1_i1 on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 COMMIT;
 BEGIN;
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | off
- enable_material                | on
- enable_mergejoin               | off
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-          QUERY PLAN          
-------------------------------
- Hash Join
-   Hash Cond: (t1.c1 = t2.c1)
-   ->  Seq Scan on t1
-   ->  Hash
-         ->  Seq Scan on t2
-(5 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Hash Join
+         Hash Cond: (t1.c1 = t2.c1)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(7 rows)
 
 COMMIT;
 -- No. A-12-3-3
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-          QUERY PLAN          
-------------------------------
- Hash Join
-   Hash Cond: (t1.c1 = t2.c1)
-   ->  Seq Scan on t1
-   ->  Hash
-         ->  Seq Scan on t2
-(5 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Hash Join
+         Hash Cond: (t1.c1 = t2.c1)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(7 rows)
 
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | log
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | off
- enable_material                | on
- enable_mergejoin               | off
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 /*+Set(enable_indexscan on)Set(geqo_threshold 100)IndexScan(t2)MergeJoin(t1 t2)Leading(t2 t1)*/
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
+WARNING:  "geqo_threshold": setting is ignored because it is defunct
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t2)
@@ -4120,79 +3691,32 @@ Set(geqo_threshold 100)
 not used hint:
 duplication hint:
 error hint:
-
-             QUERY PLAN             
-------------------------------------
- Merge Join
-   Merge Cond: (t1.c1 = t2.c1)
-   ->  Index Scan using t1_i1 on t1
-   ->  Index Scan using t2_i1 on t2
-(4 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Merge Join
+         Merge Cond: (t1.c1 = t2.c1)
+         ->  Index Scan using t1_i1 on t1
+         ->  Index Scan using t2_i1 on t2
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 \connect
 SET enable_indexscan TO off;
 SET enable_mergejoin TO off;
 LOAD 'pg_hint_plan';
-SELECT name, setting FROM settings;
-              name              |  setting  
---------------------------------+-----------
- client_min_messages            | notice
- geqo                           | on
- geqo_effort                    | 5
- geqo_generations               | 0
- geqo_pool_size                 | 0
- geqo_seed                      | 0
- geqo_selection_bias            | 2
- geqo_threshold                 | 12
- constraint_exclusion           | partition
- cursor_tuple_fraction          | 0.1
- default_statistics_target      | 100
- force_parallel_mode            | off
- from_collapse_limit            | 8
- jit                            | on
- join_collapse_limit            | 8
- plan_cache_mode                | auto
- cpu_index_tuple_cost           | 0.005
- cpu_operator_cost              | 0.0025
- cpu_tuple_cost                 | 0.01
- effective_cache_size           | 16384
- jit_above_cost                 | 100000
- jit_inline_above_cost          | 500000
- jit_optimize_above_cost        | 500000
- min_parallel_index_scan_size   | 64
- min_parallel_table_scan_size   | 1024
- parallel_setup_cost            | 1000
- parallel_tuple_cost            | 0.1
- random_page_cost               | 4
- seq_page_cost                  | 1
- enable_bitmapscan              | on
- enable_gathermerge             | on
- enable_hashagg                 | on
- enable_hashjoin                | on
- enable_indexonlyscan           | on
- enable_indexscan               | off
- enable_material                | on
- enable_mergejoin               | off
- enable_nestloop                | on
- enable_parallel_append         | on
- enable_parallel_hash           | on
- enable_partition_pruning       | on
- enable_partitionwise_aggregate | off
- enable_partitionwise_join      | off
- enable_seqscan                 | on
- enable_sort                    | on
- enable_tidscan                 | on
-(46 rows)
-
+-- SELECT name, setting FROM settings;
 EXPLAIN (COSTS false) SELECT * FROM s1.t1, s1.t2 WHERE t1.c1 = t2.c1;
-          QUERY PLAN          
-------------------------------
- Hash Join
-   Hash Cond: (t1.c1 = t2.c1)
-   ->  Seq Scan on t1
-   ->  Hash
-         ->  Seq Scan on t2
-(5 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Hash Join
+         Hash Cond: (t1.c1 = t2.c1)
+         ->  Seq Scan on t1
+         ->  Hash
+               ->  Seq Scan on t2
+ Optimizer: Postgres query optimizer
+(7 rows)
 
 SET pg_hint_plan.enable_hint TO on;
 SET pg_hint_plan.debug_print TO on;
@@ -4222,16 +3746,38 @@ BEGIN
     RETURN new_cnt;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
+LOG:  statement: CREATE OR REPLACE FUNCTION nested_planner(cnt int) RETURNS int AS $$
+DECLARE
+    new_cnt int;
+BEGIN
+    RAISE NOTICE 'nested_planner(%)', cnt;
+
+    /* 再帰終了の判断 */
+    IF cnt <= 1 THEN
+        RETURN 0;
+    END IF;
+
+	SELECT /*+ IndexScan(t_1) */ nested_planner(cnt - 1) INTO new_cnt
+	  FROM s1.t1 t_1
+	  JOIN s1.t2 t_2 ON (t_1.c1 = t_2.c1)
+	 ORDER BY t_1.c1 LIMIT 1;
+
+    RETURN new_cnt;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
 ----
 ---- No. A-13-2 use hint of main query
 ----
 --No.13-2-1
 EXPLAIN (COSTS false) SELECT nested_planner(1) FROM s1.t1 t_1 ORDER BY t_1.c1;
 NOTICE:  nested_planner(1)
-              QUERY PLAN               
----------------------------------------
- Index Only Scan using t1_i1 on t1 t_1
-(1 row)
+                 QUERY PLAN                  
+---------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Index Only Scan using t1_i1 on t1 t_1
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(t_1)*/
 EXPLAIN (COSTS false) SELECT nested_planner(1) FROM s1.t1 t_1 ORDER BY t_1.c1;
@@ -4242,13 +3788,15 @@ SeqScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
-        QUERY PLAN        
---------------------------
- Sort
-   Sort Key: c1
-   ->  Seq Scan on t1 t_1
-(3 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Sort
+         Sort Key: c1
+         ->  Seq Scan on t1 t_1
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 ----
 ---- No. A-13-3 output number of times of debugging log
@@ -4256,10 +3804,13 @@ error hint:
 --No.13-3-1
 EXPLAIN (COSTS false) SELECT nested_planner(1) FROM s1.t1 t_1 ORDER BY t_1.c1;
 NOTICE:  nested_planner(1)
-              QUERY PLAN               
----------------------------------------
- Index Only Scan using t1_i1 on t1 t_1
-(1 row)
+                QUERY PLAN                  
+---------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Index Only Scan using t1_i1 on t1 t_1
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(t_2)*/
 EXPLAIN (COSTS false) SELECT nested_planner(1) FROM s1.t1 t_1 ORDER BY t_1.c1;
@@ -4270,11 +3821,13 @@ not used hint:
 SeqScan(t_2)
 duplication hint:
 error hint:
-
-              QUERY PLAN               
----------------------------------------
- Index Only Scan using t1_i1 on t1 t_1
-(1 row)
+                 QUERY PLAN                  
+---------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Index Only Scan using t1_i1 on t1 t_1
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 --No.13-3-2
 EXPLAIN (COSTS false) SELECT nested_planner(2) FROM s1.t1 t_1 ORDER BY t_1.c1;
@@ -4286,11 +3839,13 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
-              QUERY PLAN               
----------------------------------------
- Index Only Scan using t1_i1 on t1 t_1
-(1 row)
+                 QUERY PLAN                  
+---------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Index Only Scan using t1_i1 on t1 t_1
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 /*+SeqScan(t_2)*/
 EXPLAIN (COSTS false) SELECT nested_planner(2) FROM s1.t1 t_1 ORDER BY t_1.c1;
@@ -4302,24 +3857,44 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 not used hint:
 SeqScan(t_2)
 duplication hint:
 error hint:
-
-              QUERY PLAN               
----------------------------------------
- Index Only Scan using t1_i1 on t1 t_1
-(1 row)
+                 QUERY PLAN                  
+---------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Index Only Scan using t1_i1 on t1 t_1
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 --No.13-3-3
 --
 -- Redefine not to use cached plan
 --
 CREATE OR REPLACE FUNCTION nested_planner(cnt int) RETURNS int AS $$
+DECLARE
+    new_cnt int;
+BEGIN
+    RAISE NOTICE 'nested_planner(%)', cnt;
+
+    /* 再帰終了の判断 */
+    IF cnt <= 1 THEN
+        RETURN 0;
+    END IF;
+
+	SELECT /*+ IndexScan(t_1) */ nested_planner(cnt - 1) INTO new_cnt
+	  FROM s1.t1 t_1
+	  JOIN s1.t2 t_2 ON (t_1.c1 = t_2.c1)
+	 ORDER BY t_1.c1 LIMIT 1;
+
+    RETURN new_cnt;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+LOG:  statement: CREATE OR REPLACE FUNCTION nested_planner(cnt int) RETURNS int AS $$
 DECLARE
     new_cnt int;
 BEGIN
@@ -4353,32 +3928,31 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
-              QUERY PLAN               
----------------------------------------
- Index Only Scan using t1_i1 on t1 t_1
-(1 row)
+                 QUERY PLAN                  
+---------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Index Only Scan using t1_i1 on t1 t_1
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- The top level uses SeqScan(t_1), but the function should use only
 -- the hint in the function.
@@ -4395,28 +3969,24 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(t_1)
@@ -4424,18 +3994,26 @@ not used hint:
 SeqScan(t_2)
 duplication hint:
 error hint:
-
-        QUERY PLAN        
---------------------------
- Sort
-   Sort Key: c1
-   ->  Seq Scan on t1 t_1
-(3 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Sort
+         Sort Key: c1
+         ->  Seq Scan on t1 t_1
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 ----
 ---- No. A-13-4 output of debugging log on hint status
 ----
 CREATE OR REPLACE FUNCTION recall_planner() RETURNS int AS $$
+	SELECT /*+ IndexScan(t_1) */t_1.c1
+	  FROM s1.t1 t_1
+	  JOIN s1.t2 t_2 ON (t_1.c1 = t_2.c1)
+	 ORDER BY t_1.c1 LIMIT 1;
+$$ LANGUAGE SQL IMMUTABLE;
+LOG:  statement: CREATE OR REPLACE FUNCTION recall_planner() RETURNS int AS $$
 	SELECT /*+ IndexScan(t_1) */t_1.c1
 	  FROM s1.t1 t_1
 	  JOIN s1.t2 t_2 ON (t_1.c1 = t_2.c1)
@@ -4458,24 +4036,25 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 HashJoin(t_1 t_2)
 not used hint:
 duplication hint:
 error hint:
-
-              QUERY PLAN              
---------------------------------------
- Sort
-   Sort Key: t_1.c1
-   ->  Hash Join
-         Hash Cond: (t_1.c1 = t_2.c1)
-         ->  Seq Scan on t1 t_1
-         ->  Hash
-               ->  Seq Scan on t2 t_2
-(7 rows)
+                 QUERY PLAN                 
+--------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: t_1.c1
+   ->  Sort
+         Sort Key: t_1.c1
+         ->  Hash Join
+               Hash Cond: (t_1.c1 = t_2.c1)
+               ->  Seq Scan on t1 t_1
+               ->  Hash
+                     ->  Seq Scan on t2 t_2
+ Optimizer: Postgres query optimizer
+(10 rows)
 
 --No.13-4-2
 --See description for No.13-4-1
@@ -4490,24 +4069,25 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 HashJoin(st_1 st_2)
 not used hint:
 duplication hint:
 error hint:
-
-               QUERY PLAN               
-----------------------------------------
- Sort
-   Sort Key: st_1.c1
-   ->  Hash Join
-         Hash Cond: (st_1.c1 = st_2.c1)
-         ->  Seq Scan on t1 st_1
-         ->  Hash
-               ->  Seq Scan on t2 st_2
-(7 rows)
+                  QUERY PLAN                  
+----------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: st_1.c1
+   ->  Sort
+         Sort Key: st_1.c1
+         ->  Hash Join
+               Hash Cond: (st_1.c1 = st_2.c1)
+               ->  Seq Scan on t1 st_1
+               ->  Hash
+                     ->  Seq Scan on t2 st_2
+ Optimizer: Postgres query optimizer
+(10 rows)
 
 --No.13-4-3
 --See description for No.13-4-1
@@ -4522,23 +4102,24 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 not used hint:
 HashJoin(t_1 t_2)
 duplication hint:
 error hint:
-
-                  QUERY PLAN                  
-----------------------------------------------
- Merge Join
-   Merge Cond: (st_1.c1 = st_2.c1)
-   ->  Index Only Scan using t1_i1 on t1 st_1
-   ->  Sort
-         Sort Key: st_2.c1
-         ->  Seq Scan on t2 st_2
-(6 rows)
+                     QUERY PLAN                     
+----------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: st_1.c1
+   ->  Merge Join
+         Merge Cond: (st_1.c1 = st_2.c1)
+         ->  Index Only Scan using t1_i1 on t1 st_1
+         ->  Sort
+               Sort Key: st_2.c1
+               ->  Seq Scan on t2 st_2
+ Optimizer: Postgres query optimizer
+(9 rows)
 
 --No.13-4-4
 --See description for No.13-4-1
@@ -4553,23 +4134,24 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 not used hint:
 HashJoin(st_1 st_2)
 duplication hint:
 error hint:
-
-                 QUERY PLAN                  
----------------------------------------------
- Merge Join
-   Merge Cond: (t_1.c1 = t_2.c1)
-   ->  Index Only Scan using t1_i1 on t1 t_1
-   ->  Sort
-         Sort Key: t_2.c1
-         ->  Seq Scan on t2 t_2
-(6 rows)
+                    QUERY PLAN                     
+---------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: t_1.c1
+   ->  Merge Join
+         Merge Cond: (t_1.c1 = t_2.c1)
+         ->  Index Only Scan using t1_i1 on t1 t_1
+         ->  Sort
+               Sort Key: t_2.c1
+               ->  Seq Scan on t2 t_2
+ Optimizer: Postgres query optimizer
+(9 rows)
 
 --No.13-4-5
 -- See description for No.13-4-1. No joins in ths plan, so
@@ -4584,21 +4166,27 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 not used hint:
 HashJoin(t_1 t_1)
 duplication hint:
 error hint:
-
-              QUERY PLAN               
----------------------------------------
- Index Only Scan using t1_i1 on t1 t_1
-(1 row)
+                 QUERY PLAN                  
+---------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: c1
+   ->  Index Only Scan using t1_i1 on t1 t_1
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 --No.13-4-6
 CREATE OR REPLACE FUNCTION recall_planner_one_t() RETURNS int AS $$
+	SELECT /*+ IndexScan(t_1) */t_1.c1
+	  FROM s1.t1 t_1
+	 ORDER BY t_1.c1 LIMIT 1;
+$$ LANGUAGE SQL IMMUTABLE;
+LOG:  statement: CREATE OR REPLACE FUNCTION recall_planner_one_t() RETURNS int AS $$
 	SELECT /*+ IndexScan(t_1) */t_1.c1
 	  FROM s1.t1 t_1
 	 ORDER BY t_1.c1 LIMIT 1;
@@ -4613,16 +4201,18 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
-                 QUERY PLAN                  
----------------------------------------------
- Merge Join
-   Merge Cond: (t_1.c1 = t_2.c1)
-   ->  Index Only Scan using t1_i1 on t1 t_1
-   ->  Sort
-         Sort Key: t_2.c1
-         ->  Seq Scan on t2 t_2
-(6 rows)
+                    QUERY PLAN                     
+---------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: t_1.c1
+   ->  Merge Join
+         Merge Cond: (t_1.c1 = t_2.c1)
+         ->  Index Only Scan using t1_i1 on t1 t_1
+         ->  Sort
+               Sort Key: t_2.c1
+               ->  Seq Scan on t2 t_2
+ Optimizer: Postgres query optimizer
+(9 rows)
 
 /*+HashJoin(t_1 t_1)*/
 EXPLAIN (COSTS false)
@@ -4635,7 +4225,6 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 INFO:  pg_hint_plan: hint syntax error at or near "HashJoin(t_1 t_1)"
 DETAIL:  Relation name "t_1" is duplicated.
 LOG:  pg_hint_plan:
@@ -4644,18 +4233,22 @@ not used hint:
 duplication hint:
 error hint:
 HashJoin(t_1 t_1)
-
-                 QUERY PLAN                  
----------------------------------------------
- Merge Join
-   Merge Cond: (t_1.c1 = t_2.c1)
-   ->  Index Only Scan using t1_i1 on t1 t_1
-   ->  Sort
-         Sort Key: t_2.c1
-         ->  Seq Scan on t2 t_2
-(6 rows)
+                    QUERY PLAN                     
+---------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: t_1.c1
+   ->  Merge Join
+         Merge Cond: (t_1.c1 = t_2.c1)
+         ->  Index Only Scan using t1_i1 on t1 t_1
+         ->  Sort
+               Sort Key: t_2.c1
+               ->  Seq Scan on t2 t_2
+ Optimizer: Postgres query optimizer
+(9 rows)
 
 DROP FUNCTION recall_planner_one_t(int);
+LOG:  statement: DROP FUNCTION recall_planner_one_t(int);
+LOG:  An exception was encountered during the execution of statement: DROP FUNCTION recall_planner_one_t(int);
 ERROR:  function recall_planner_one_t(integer) does not exist
 --No.13-4-7
 -- See description for No.13-4-1. Complains on the wrongly written hint.
@@ -4670,7 +4263,6 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 INFO:  pg_hint_plan: hint syntax error at or near "HashJoin(t_1 t_1)"
 DETAIL:  Relation name "t_1" is duplicated.
 LOG:  pg_hint_plan:
@@ -4679,16 +4271,18 @@ not used hint:
 duplication hint:
 error hint:
 HashJoin(t_1 t_1)
-
-                 QUERY PLAN                  
----------------------------------------------
- Merge Join
-   Merge Cond: (t_1.c1 = t_2.c1)
-   ->  Index Only Scan using t1_i1 on t1 t_1
-   ->  Sort
-         Sort Key: t_2.c1
-         ->  Seq Scan on t2 t_2
-(6 rows)
+                    QUERY PLAN                     
+---------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: t_1.c1
+   ->  Merge Join
+         Merge Cond: (t_1.c1 = t_2.c1)
+         ->  Index Only Scan using t1_i1 on t1 t_1
+         ->  Sort
+               Sort Key: t_2.c1
+               ->  Seq Scan on t2 t_2
+ Optimizer: Postgres query optimizer
+(9 rows)
 
 --No.13-4-8
 /*+MergeJoin(t_1 t_2)HashJoin(t_1 t_2)*/
@@ -4704,7 +4298,6 @@ IndexScan(t_1)
 not used hint:
 duplication hint:
 error hint:
-
 LOG:  pg_hint_plan:
 used hint:
 HashJoin(t_1 t_2)
@@ -4712,99 +4305,121 @@ not used hint:
 duplication hint:
 MergeJoin(t_1 t_2)
 error hint:
-
-              QUERY PLAN              
---------------------------------------
- Sort
-   Sort Key: t_1.c1
-   ->  Hash Join
-         Hash Cond: (t_1.c1 = t_2.c1)
-         ->  Seq Scan on t1 t_1
-         ->  Hash
-               ->  Seq Scan on t2 t_2
-(7 rows)
+                 QUERY PLAN                 
+--------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   Merge Key: t_1.c1
+   ->  Sort
+         Sort Key: t_1.c1
+         ->  Hash Join
+               Hash Cond: (t_1.c1 = t_2.c1)
+               ->  Seq Scan on t1 t_1
+               ->  Hash
+                     ->  Seq Scan on t2 t_2
+ Optimizer: Postgres query optimizer
+(10 rows)
 
 --No.14-1-1 plancache invalidation
 CREATE TABLE s1.tpc AS SELECT a FROM generate_series(0, 999) a;
+LOG:  statement: CREATE TABLE s1.tpc AS SELECT a FROM generate_series(0, 999) a;
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'a' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 CREATE INDEX ON s1.tpc(a);
+LOG:  statement: CREATE INDEX ON s1.tpc(a);
 PREPARE p1 AS SELECT * FROM s1.tpc WHERE a < 999;
 /*+ IndexScan(tpc) */PREPARE p2 AS SELECT * FROM s1.tpc WHERE a < 999;
 /*+ SeqScan(tpc) */PREPARE p3(int) AS SELECT * FROM s1.tpc WHERE a = $1;
-EXPLAIN EXECUTE p1;
-                      QUERY PLAN                      
-------------------------------------------------------
- Seq Scan on tpc  (cost=0.00..17.50 rows=333 width=4)
-   Filter: (a < 999)
-(2 rows)
+EXPLAIN (COSTS false) EXECUTE p1;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)  (cost=0.00..560.00 rows=8000 width=4)
+   ->  Seq Scan on tpc  (cost=0.00..400.00 rows=8000 width=4)
+         Filter: (a < 999)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
-EXPLAIN EXECUTE p2;
+EXPLAIN (COSTS false) EXECUTE p2;
 LOG:  pg_hint_plan:
 used hint:
 IndexScan(tpc)
 not used hint:
 duplication hint:
 error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Index Scan using tpc_a_idx on tpc
+         Index Cond: (a < 999)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
-                               QUERY PLAN                               
-------------------------------------------------------------------------
- Index Scan using tpc_a_idx on tpc  (cost=0.28..34.10 rows=333 width=4)
-   Index Cond: (a < 999)
-(2 rows)
-
-EXPLAIN EXECUTE p3(500);
+EXPLAIN (COSTS false) EXECUTE p3(500);
 LOG:  pg_hint_plan:
 used hint:
 SeqScan(tpc)
 not used hint:
 duplication hint:
 error hint:
-
-                     QUERY PLAN                     
-----------------------------------------------------
- Seq Scan on tpc  (cost=0.00..17.50 rows=5 width=4)
-   Filter: (a = 500)
-(2 rows)
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on tpc
+         Filter: (a = 500)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
 -- The DROP invalidates the plan caches
 DROP TABLE s1.tpc;
+LOG:  statement: DROP TABLE s1.tpc;
 CREATE TABLE s1.tpc AS SELECT a FROM generate_series(0, 999) a;
+LOG:  statement: CREATE TABLE s1.tpc AS SELECT a FROM generate_series(0, 999) a;
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column(s) named 'a' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
 CREATE INDEX ON s1.tpc(a);
-EXPLAIN EXECUTE p1;
-                      QUERY PLAN                      
-------------------------------------------------------
- Seq Scan on tpc  (cost=0.00..17.50 rows=333 width=4)
-   Filter: (a < 999)
-(2 rows)
+LOG:  statement: CREATE INDEX ON s1.tpc(a);
+EXPLAIN (COSTS false) EXECUTE p1;
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on tpc
+         Filter: (a < 999)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
-EXPLAIN EXECUTE p2;
+EXPLAIN (COSTS false) EXECUTE p2;
 LOG:  pg_hint_plan:
 used hint:
+not used hint:
 IndexScan(tpc)
-not used hint:
 duplication hint:
 error hint:
+                QUERY PLAN                
+------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Seq Scan on tpc
+         Filter: (a < 999)
+ Optimizer: Postgres query optimizer
+(4 rows)
 
-                               QUERY PLAN                               
-------------------------------------------------------------------------
- Index Scan using tpc_a_idx on tpc  (cost=0.28..34.10 rows=333 width=4)
-   Index Cond: (a < 999)
-(2 rows)
-
-EXPLAIN EXECUTE p3(500);
+EXPLAIN (COSTS false) EXECUTE p3(500);
 LOG:  pg_hint_plan:
 used hint:
-SeqScan(tpc)
 not used hint:
+SeqScan(tpc)
 duplication hint:
 error hint:
-
-                     QUERY PLAN                     
-----------------------------------------------------
- Seq Scan on tpc  (cost=0.00..17.50 rows=5 width=4)
-   Filter: (a = 500)
-(2 rows)
+                 QUERY PLAN                 
+--------------------------------------------
+ Gather Motion 1:1  (slice1; segments: 1)
+   ->  Bitmap Heap Scan on tpc
+         Recheck Cond: (a = 500)
+         ->  Bitmap Index Scan on tpc_a_idx
+               Index Cond: (a = 500)
+ Optimizer: Postgres query optimizer
+(6 rows)
 
 DEALLOCATE p1;
 DEALLOCATE p2;
 DEALLOCATE p3;
 DROP TABLE s1.tpc;
+LOG:  statement: DROP TABLE s1.tpc;
