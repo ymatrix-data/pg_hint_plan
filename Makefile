@@ -6,6 +6,17 @@
 
 MODULES = pg_hint_plan
 
+REGRESS = ut-motion
+
+ifeq ($(PORT),)
+  # PORT is not defined
+else ifeq ($(USER),)
+  # USER is not defined
+else
+  # Both PORT and USER are defined
+  REGRESS_OPTS = --port=${PORT} --user=${USER}
+endif
+
 EXTENSION = pg_hint_plan
 DATA = pg_hint_plan--*.sql
 
