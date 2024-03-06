@@ -6,6 +6,17 @@
 
 MODULES = pg_hint_plan
 
+REGRESS = ut-motion
+
+ifeq ($(PORT),)
+  # PORT is not defined
+else ifeq ($(USER),)
+  # USER is not defined
+else
+  # Both PORT and USER are defined
+  REGRESS_OPTS = --port=${PORT} --user=${USER}
+endif
+
 EXTENSION = pg_hint_plan
 DATA = pg_hint_plan--*.sql
 
@@ -24,8 +35,8 @@ ifeq (,$(filter $(shell uname),Darwin SunOS))
 LDFLAGS+=-Wl,--build-id
 endif
 
-# pg_hint_plan.c includes core.c, make_join_rel.c and pg_stat_statements.c
-pg_hint_plan.o: core.c make_join_rel.c pg_stat_statements.c
+# pg_hint_plan.c includes core.c, make_join_rel.c and pg_stat_statements.c motion.c
+pg_hint_plan.o: core.c make_join_rel.c pg_stat_statements.c motion.c
 
 OBJS = pg_hint_plan.o
 
