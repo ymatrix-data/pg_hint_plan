@@ -3640,5 +3640,5 @@ motion_unmaterial(Path *path, void *context)
 	if (IsA(path, CdbMotionPath))
 		return true;
 
-	return path_tree_walker(path, motion_unmaterial, context);
+	return path_tree_walker(path, motion_unmaterial, context, false);
 }
